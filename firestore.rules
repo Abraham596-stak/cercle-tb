@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function connecte() { return request.auth != null; }
+
+    // Membres : tout le monde voit la liste, chacun ne modifie que sa fiche
+    match /members/{uid} {
+      allow read: if connecte();
+      allow write: if connecte() && request.auth.uid == uid;
+    }
+
+    // Publications : tout le cercle lit, chacun publie et supprime seulement les siennes
+    match /posts/{id} {
+      allow read: if connecte();
+      allow create: if connecte() && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.type in ['objectif', 'jour', 'semaine', 'message'];
+      allow update, delete: if connecte() && resource.data.uid == request.auth.uid;
+    }
+
+    // Jetons de notification : chacun enregistre le sien, personne ne lit ceux des autres
+    match /tokens/{token} {
+      allow create, update: if connecte() && request.resource.data.uid == request.auth.uid;
+      allow read, delete: if false;
+    }
+  }
+}

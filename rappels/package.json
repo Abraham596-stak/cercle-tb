@@ -1,0 +1,8 @@
+{
+  "name": "cercle-tb-rappels",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "12.1.0"
+  }
+}
