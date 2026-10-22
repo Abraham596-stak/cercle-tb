@@ -140,3 +140,8 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .blurctl input[type=range] { flex: 1; accent-color: var(--navy); }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 24px); background: #1C1E21; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 14px; z-index: 60; max-width: calc(100vw - 32px); }
+
+.pw { position: relative; }
+.pw .field { padding-right: 48px; }
+.eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; border-radius: 50%; }
+.eye:hover { background: var(--hover); color: var(--ink); }
