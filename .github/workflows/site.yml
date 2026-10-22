@@ -9,9 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - uses: actions/setup-node@v4
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          projectId: cercle-tb
-          channelId: live
+          node-version: 20
+      - name: Publier
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          set +e
+          npx -y firebase-tools@13 deploy --only hosting --project cercle-tb --non-interactive > out.txt 2>&1
+          code=$?
+          cat out.txt
+          if [ $code -ne 0 ]; then
+            grep -iE "error|permission|denied|not found|hosting" out.txt | head -8 | while read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
