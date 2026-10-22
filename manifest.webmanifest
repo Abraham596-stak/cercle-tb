@@ -1,10 +1,10 @@
 {
-  "id": "/cercle-tb/?app=2",
+  "id": "./?app=web",
   "name": "Le Cercle TB",
   "short_name": "Cercle TB",
   "description": "Le groupe pour tenir ses objectifs et atteindre zéro scroll.",
-  "start_url": "/cercle-tb/",
-  "scope": "/cercle-tb/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#F0F2F5",

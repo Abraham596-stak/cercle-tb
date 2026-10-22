@@ -1,0 +1,17 @@
+# Met l'application en ligne sur https://cercle-tb.web.app à chaque modification
+name: Site
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  deployer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: cercle-tb
+          channelId: live
