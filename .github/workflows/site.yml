@@ -19,7 +19,7 @@ jobs:
           echo "$SA" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           set +e
-          npx -y firebase-tools@13 deploy --only hosting,firestore:rules --project cercle-tb --non-interactive > out.txt 2>&1
+          npx -y firebase-tools@13 deploy --only hosting --project cercle-tb --non-interactive > out.txt 2>&1
           code=$?
           cat out.txt
           if [ $code -ne 0 ]; then
