@@ -1,7 +1,7 @@
 /* Le Cercle TB — blanc et bleu nuit, style réseau social */
 :root {
-  --navy: #0B1F3F;
-  --navy-2: #16305C;
+  --navy: #1D9BF0;
+  --navy-2: #1A8CD8;
   --blue: #1D4ED8;
   --bg: #F0F2F5;
   --card: #FFFFFF;
@@ -32,10 +32,10 @@ h1, h2, h3 { margin: 0; }
 .btn-primary { background: var(--navy); color: #fff; }
 .btn-primary:hover { background: var(--navy-2); }
 .btn-primary:disabled { background: #B8C0CC; cursor: default; }
-.btn-secondary { background: #E7EBF3; color: var(--navy); }
+.btn-secondary { background: #E8F5FE; color: var(--navy); }
 .btn-sm { width: auto; padding: 7px 14px; font-size: 14px; }
 .field, textarea { width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: #fff; border: 1px solid #DDDFE2; border-radius: 6px; padding: 13px 14px; }
-.field:focus, textarea:focus { border-color: var(--navy); outline: 0; box-shadow: 0 0 0 2px rgba(11,31,63,.15); }
+.field:focus, textarea:focus { border-color: var(--navy); outline: 0; box-shadow: 0 0 0 2px rgba(29,155,240,.2); }
 textarea { min-height: 96px; resize: vertical; background: var(--bg); border-color: transparent; }
 .link { background: none; border: 0; color: var(--blue); font-size: 14px; padding: 4px; }
 .err { color: var(--ko); font-size: 13px; min-height: 1em; }
@@ -55,10 +55,10 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .topbar-in { max-width: 680px; margin: 0 auto; height: 56px; display: flex; align-items: center; justify-content: space-between;
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); position: relative; }
 .top-right { display: flex; align-items: center; gap: 10px; position: relative; }
-.net { font-size: 12px; color: #C9D3E6; display: flex; align-items: center; gap: 6px; }
-.net::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #3FCF7A; }
+.net { font-size: 12px; color: #EAF6FF; display: flex; align-items: center; gap: 6px; }
+.net::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #FFFFFF; }
 .net.off::before { background: #F59E0B; }
-.icon-btn { width: 38px; height: 38px; border-radius: 50%; border: 0; background: rgba(255,255,255,.12); color: #fff; font-size: 20px; line-height: 1; display: grid; place-items: center; }
+.icon-btn { width: 38px; height: 38px; border-radius: 50%; border: 0; background: rgba(255,255,255,.2); color: #fff; font-size: 20px; line-height: 1; display: grid; place-items: center; }
 .icon-btn.dark { background: var(--line); color: var(--ink); }
 
 /* Page */
@@ -96,7 +96,7 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .post-img { display: block; width: 100%; margin-top: 12px; }
 .post > :last-child { margin-bottom: 12px; }
 .post > .post-img:last-child { margin-bottom: 0; }
-.tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #E7EBF3; color: var(--navy); white-space: nowrap; }
+.tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #E8F5FE; color: var(--navy); white-space: nowrap; }
 .tag.ok { background: var(--ok-bg); color: var(--ok); }
 .tag.ko { background: var(--ko-bg); color: var(--ko); }
 .pending { padding: 8px 16px 0; font-size: 12px; color: var(--muted); }
@@ -131,7 +131,7 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .hint { font-size: 13px; color: var(--muted); margin: 0; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .choice { flex: 1; min-width: 130px; border: 1px solid #DDDFE2; background: #fff; color: var(--ink); border-radius: 6px; padding: 11px; font-weight: 600; }
-.choice[aria-pressed="true"] { border-color: var(--navy); background: #E7EBF3; color: var(--navy); }
+.choice[aria-pressed="true"] { border-color: var(--navy); background: #E8F5FE; color: var(--navy); }
 .filebtn { display: flex; align-items: center; justify-content: center; border: 1px dashed #BCC0C4; border-radius: 8px; padding: 18px; color: var(--navy); font-weight: 600; cursor: pointer; text-align: center; }
 .filebtn input { display: none; }
 .photo { display: flex; flex-direction: column; gap: 8px; }
