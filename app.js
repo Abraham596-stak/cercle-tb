@@ -61,19 +61,20 @@ const ERR = {
 function loginView(mode = "in") {
   const create = mode === "new";
   $("#app").innerHTML = `<div class="login">
-    <div class="ring big">TB</div>
-    <h1>Le Cercle TB</h1>
-    <p>Le groupe pour tenir ses objectifs et arriver à zéro scroll. Chaque semaine, un objectif écrit sur papier. Chaque soir, un bilan.</p>
-    <form id="lf" class="card">
-      <span class="label">${create ? "Créer mon compte" : "Se connecter"}</span>
-      ${create ? `<input id="lname" type="text" placeholder="Ton prénom" required maxlength="30" autocomplete="given-name">` : ""}
-      <input id="lmail" type="email" placeholder="Ton e-mail" required autocomplete="email">
-      <input id="lpass" type="password" placeholder="Mot de passe (6 caractères min.)" required minlength="6" autocomplete="${create ? "new-password" : "current-password"}"
-        style="width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px">
+    <div class="login-brand">
+      <div class="wordmark">cercle tb</div>
+      <p>Un objectif par semaine. Un bilan chaque soir. Zéro scroll.</p>
+    </div>
+    <form id="lf" class="login-card">
+      <h2>${create ? "Créer un compte" : "Se connecter"}</h2>
+      ${create ? `<input id="lname" class="field" type="text" placeholder="Prénom" required maxlength="30" autocomplete="given-name">` : ""}
+      <input id="lmail" class="field" type="email" placeholder="Adresse e-mail" required autocomplete="email">
+      <input id="lpass" class="field" type="password" placeholder="Mot de passe" required minlength="6" autocomplete="${create ? "new-password" : "current-password"}">
       <div class="err" id="lerr"></div>
-      <button class="btn" type="submit">${create ? "Rejoindre le cercle" : "Entrer"}</button>
-      <button class="link" type="button" id="swap">${create ? "J'ai déjà un compte" : "Nouveau ? Créer mon compte"}</button>
-      ${create ? "" : `<button class="link" type="button" id="forgot">Mot de passe oublié</button>`}
+      <button class="btn btn-primary" type="submit">${create ? "S'inscrire" : "Se connecter"}</button>
+      ${create ? "" : `<button class="link" type="button" id="forgot">Mot de passe oublié ?</button>`}
+      <hr>
+      <button class="btn btn-secondary" type="button" id="swap">${create ? "J'ai déjà un compte" : "Créer un nouveau compte"}</button>
     </form></div>`;
   $("#swap").onclick = () => loginView(create ? "in" : "new");
   if ($("#forgot")) $("#forgot").onclick = async () => {
@@ -136,64 +137,68 @@ function statsFor(uid) {
 }
 
 /* ---------- vues ---------- */
+function avatar(name, cls = "") { return `<div class="av ${cls}">${esc((name || "?")[0].toUpperCase())}</div>`; }
 function postHTML(p) {
   let tag = `<span class="tag">${TYPES[p.type] || ""}</span>`;
-  if (p.type === "semaine") tag = `<span class="tag ${p.atteint ? "ok" : "ko"}">${p.atteint ? "Objectif atteint" : "Pas atteint"}</span>`;
+  if (p.type === "semaine") tag = `<span class="tag ${p.atteint ? "ok" : "ko"}">${p.atteint ? "Objectif atteint" : "Objectif non atteint"}</span>`;
   if (p.type === "jour") tag = `<span class="tag ${p.zero ? "ok" : "ko"}">${p.zero ? "0 scroll" : "A scrollé"}</span>`;
   if (p.type === "message") tag = "";
   const d = new Date(p.ts);
-  return `<article class="post">
-    <div class="who"><div class="av">${esc((p.name || "?")[0].toUpperCase())}</div>
-      <div class="meta"><strong>${esc(p.name)}${p.uid === me.uid ? " (toi)" : ""}</strong><small>${fmtDate(d)} à ${fmtTime(d)}</small></div>${tag}</div>
-    ${p.photo ? `<img src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
-    ${p.text ? `<p>${esc(p.text)}</p>` : ""}
-    ${p._pending ? `<span class="pending">En attente de réseau, sera envoyé automatiquement</span>` : ""}
+  return `<article class="card post">
+    <div class="post-head">${avatar(p.name)}
+      <div class="meta"><strong>${esc(p.name)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
+    ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
+    ${tag ? `<div class="post-tags">${tag}</div>` : ""}
+    ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
+    ${p._pending ? `<div class="pending">En attente de réseau · envoi automatique</div>` : ""}
   </article>`;
 }
 function header() {
-  return `<header class="top"><div class="brand"><div class="ring">TB</div><div><h1>Le Cercle TB</h1>
-    <div class="status"><span class="dot ${online ? "" : "off"}"></span>${online ? "En ligne" : "Hors ligne, tout est gardé"} · ${members.length} membre${members.length > 1 ? "s" : ""}</div></div></div>
-    <button class="kebab" id="menu" aria-label="Menu">⋮</button></header>`;
+  return `<header class="topbar"><div class="topbar-in">
+    <div class="wordmark small">cercle tb</div>
+    <div class="top-right">
+      <span class="net ${online ? "" : "off"}">${online ? "En ligne" : "Hors ligne"}</span>
+      <button class="icon-btn" id="menu" aria-label="Menu">⋮</button>
+    </div></div></header>`;
 }
 function notifBanner() {
   if (!("Notification" in window) || Notification.permission === "granted") return "";
   const ios = /iphone|ipad/i.test(navigator.userAgent) && !navigator.standalone;
-  return `<div class="banner"><span>${ios ? "Sur iPhone : touche Partager puis « Sur l'écran d'accueil », ouvre l'app depuis l'icône, puis active les rappels." : "Active les rappels pour recevoir les notifications de 23h30 et du dimanche."}</span>
-    ${ios ? "" : `<button class="btn" id="notif">Activer</button>`}</div>`;
+  return `<div class="card banner"><span>${ios ? "Sur iPhone : Partager → « Sur l'écran d'accueil », puis ouvre l'app depuis l'icône pour activer les rappels." : "Active les rappels pour être prévenu à 23h30 et le dimanche."}</span>
+    ${ios ? "" : `<button class="btn btn-primary btn-sm" id="notif">Activer</button>`}</div>`;
 }
 function filView() {
   const n = nextReminder(), s = statsFor(me.uid), ws = weekStart(new Date());
   const list = posts.filter(p => filter === "tout" || p.type === filter || (filter === "moi" && p.uid === me.uid));
-  return `${header()}${notifBanner()}
-  <section class="card next">
-    <span class="label">Prochain rappel</span>
-    <div class="when">${fmtDate(n.t)} · ${fmtTime(n.t)}</div>
-    <div class="what">${n.what}, ${untilText(n.t)}</div>
-    <div class="sched"><span>Lun. → sam. 23h30 : bilan du jour</span><span>Dim. 8h00 : objectif atteint ?</span><span>Dim. 15h00 : nouvel objectif</span></div>
+  const labels = { tout: "Toutes les publications", objectif: "Objectifs", jour: "Bilans du jour", semaine: "Bilans de semaine", message: "Messages", moi: "Mes publications" };
+  return `${header()}<main class="page">${notifBanner()}
+  <section class="card composer" id="composer">
+    ${avatar(me.name)}
+    <button class="composer-input" id="compose">Partage ton objectif ou ton bilan…</button>
   </section>
-  <section class="stats">
-    <div class="stat"><b>${s.streak}</b><span>jour${s.streak > 1 ? "s" : ""} 0 scroll d'affilée</span></div>
-    <div class="stat"><b>${s.obj ? "✓" : "—"}</b><span>objectif semaine du ${ws.getDate()} ${MOIS[ws.getMonth()]}</span></div>
-    <div class="stat"><b>${s.done}</b><span>objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}</span></div>
+  <section class="card summary">
+    <div class="sum-row">
+      <div><b>${s.streak}</b><span>jour${s.streak > 1 ? "s" : ""} 0 scroll</span></div>
+      <div><b>${s.obj ? "Envoyé" : "À faire"}</b><span>objectif sem. du ${ws.getDate()} ${MOIS[ws.getMonth()]}</span></div>
+      <div><b>${s.done}</b><span>objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}</span></div>
+    </div>
+    <div class="next"><span class="next-label">Prochain rappel</span><span>${fmtDate(n.t)} à ${fmtTime(n.t)} · ${n.what}</span></div>
   </section>
-  <div class="feedhead"><h2>Le groupe</h2><button class="kebab" id="flt" aria-label="Filtrer">⋮</button></div>
-  <section style="display:flex;flex-direction:column;gap:12px">
-    ${list.length ? list.map(postHTML).join("") : `<div class="empty card">Rien ici pour l'instant.<br>Touche <b>+</b> pour envoyer ton objectif de la semaine.</div>`}
-  </section>
-  <button class="fab" id="fab" aria-label="Publier">+</button>`;
+  <div class="section-head"><h2>${labels[filter]}</h2><button class="icon-btn dark" id="flt" aria-label="Filtrer">⋮</button></div>
+  ${list.length ? list.map(postHTML).join("") : `<div class="card empty">Aucune publication pour l'instant.<br>Partage ton objectif de la semaine pour lancer le groupe.</div>`}
+  </main>`;
 }
 function membresView() {
   const sorted = [...members].sort((a, b) => statsFor(b.uid).streak - statsFor(a.uid).streak);
-  return `${header()}
-  <div class="feedhead"><h2>Membres du cercle</h2></div>
-  <p class="hint" style="margin:0">Classés par jours 0 scroll d'affilée.</p>
-  <section style="display:flex;flex-direction:column;gap:10px">
+  return `${header()}<main class="page">
+  <div class="section-head"><h2>Membres · ${members.length}</h2></div>
+  <section class="card list">
   ${sorted.map(m => { const s = statsFor(m.uid); return `<div class="member">
-    <div class="av">${esc((m.name || "?")[0].toUpperCase())}</div>
+    ${avatar(m.name)}
     <div class="meta"><strong>${esc(m.name)}${m.uid === me.uid ? " (toi)" : ""}</strong>
       <small>${s.streak} j 0 scroll · ${s.done} objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}</small></div>
-    <span class="tag ${s.obj ? "ok" : "ko"}">${s.obj ? "Objectif posté" : "Pas d'objectif"}</span></div>`; }).join("") || `<div class="empty card">Aucun membre pour l'instant.</div>`}
-  </section>`;
+    <span class="tag ${s.obj ? "ok" : "ko"}">${s.obj ? "Objectif envoyé" : "Sans objectif"}</span></div>`; }).join("") || `<div class="empty">Aucun membre pour l'instant.</div>`}
+  </section></main>`;
 }
 function render() {
   if (!me) return;
@@ -212,14 +217,14 @@ function render() {
     if (k === "out") signOut(auth);
   }, $("#menu").parentElement, view);
   if ($("#notif")) $("#notif").onclick = enableNotifs;
-  if ($("#fab")) $("#fab").onclick = () => openMenu([
+  if ($("#compose")) $("#compose").onclick = () => openMenu([
     ["objectif", "Objectif de la semaine", "Photo du papier, floutée ou non"],
     ["jour", "Bilan du jour", "0 scroll ? Ce que tu as fait"],
     ["semaine", "Bilan de la semaine", "Objectif atteint ou pas"],
     ["message", "Message au groupe", "Encourager, poser une question"]
-  ], k => openSheet(k), null, null, null, "fabmenu");
+  ], k => openSheet(k), $("#composer"));
   if ($("#flt")) $("#flt").onclick = () => openMenu([
-    ["tout", "Tout le groupe", ""], ["objectif", "Objectifs", ""], ["jour", "Bilans du jour", ""],
+    ["tout", "Toutes les publications", ""], ["objectif", "Objectifs", ""], ["jour", "Bilans du jour", ""],
     ["semaine", "Bilans de semaine", ""], ["message", "Messages", ""], ["moi", "Mes publications", ""]
   ], k => { filter = k; render(); }, $("#flt").parentElement, filter);
 }
@@ -260,7 +265,7 @@ function openSheet(type) {
   const yesNo = (q, a, b) => `<span class="label">${q}</span><div class="row"><button class="choice" data-v="1" aria-pressed="false">${a}</button><button class="choice" data-v="0" aria-pressed="false">${b}</button></div>`;
   const body = {
     objectif: `<p class="hint">Écris ton objectif sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
-      <label class="filebtn" id="pick"><input id="file" type="file" accept="image/*" capture="environment"><span id="picktxt">📷 Prendre ou choisir la photo du papier</span></label>
+      <label class="filebtn" id="pick"><input id="file" type="file" accept="image/*" capture="environment"><span id="picktxt">Prendre ou choisir la photo du papier</span></label>
       <div class="photo" id="ph" hidden><canvas id="cv"></canvas>
         <div class="blurctl"><span>Flou</span><input id="blur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span id="bv">6</span></div>
         <span class="hint">0 = sans flou. La photo est réduite pour consommer très peu de données.</span></div>
@@ -272,8 +277,8 @@ function openSheet(type) {
     message: `<textarea id="txt" maxlength="600" placeholder="Ton message au groupe"></textarea>`
   }[type];
   wrap.innerHTML = `<div class="panel" role="dialog" aria-label="${TYPES[type]}">
-    <div class="feedhead"><h2>${TYPES[type]}</h2><button class="kebab" id="x" aria-label="Fermer">×</button></div>
-    ${body}<button class="btn" id="send" disabled>Envoyer au groupe</button></div>`;
+    <div class="sheet-head"><h2>${TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    ${body}<button class="btn btn-primary" id="send" disabled>Publier</button></div>`;
   $("#layer").appendChild(wrap);
   const close = () => { $("#layer").innerHTML = ""; render(); };
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });

@@ -7,8 +7,8 @@
   "scope": "/cercle-tb/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#EEF1F4",
-  "theme_color": "#2C47D9",
+  "background_color": "#F0F2F5",
+  "theme_color": "#0B1F3F",
   "lang": "fr",
   "icons": [
     {
