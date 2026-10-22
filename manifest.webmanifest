@@ -1,17 +1,38 @@
 {
+  "id": "/cercle-tb/",
   "name": "Le Cercle TB",
   "short_name": "Cercle TB",
   "description": "Le groupe pour tenir ses objectifs et atteindre zéro scroll.",
-  "start_url": "./",
-  "scope": "./",
+  "start_url": "/cercle-tb/",
+  "scope": "/cercle-tb/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#EEF1F4",
   "theme_color": "#2C47D9",
   "lang": "fr",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "prefer_related_applications": false,
+  "display_override": [
+    "standalone",
+    "minimal-ui"
   ]
 }
