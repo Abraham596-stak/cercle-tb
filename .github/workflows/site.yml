@@ -19,10 +19,18 @@ jobs:
           echo "$SA" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           set +e
-          npx -y firebase-tools@13 deploy --only hosting --project cercle-tb --non-interactive > out.txt 2>&1
+          npx -y firebase-tools@13 deploy --only hosting,firestore:rules --project cercle-tb --non-interactive > out.txt 2>&1
           code=$?
           cat out.txt
           if [ $code -ne 0 ]; then
             grep -iE "error|permission|denied|not found|hosting" out.txt | head -8 | while read -r l; do echo "::error::$l"; done
             exit 1
           fi
+      - name: Valider les anciens membres
+        working-directory: rappels
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          npm install --no-audit --no-fund
+          node discipline.mjs

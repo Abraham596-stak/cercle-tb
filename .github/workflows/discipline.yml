@@ -1,0 +1,22 @@
+# Toutes les 15 minutes : e-mail à l'administrateur pour chaque nouvelle demande, blocage après 14 jours sans bilan
+name: Discipline
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rappels
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: node discipline.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

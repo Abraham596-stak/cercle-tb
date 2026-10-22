@@ -2,22 +2,37 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function connecte() { return request.auth != null; }
+    // L'administrateur : Dénahouéa Merveil (adresse confirmée obligatoire)
+    function admin() {
+      return connecte() && request.auth.token.email == 'abropia823@gmail.com' && request.auth.token.email_verified == true;
+    }
+    function fiche() { return /databases/$(database)/documents/members/$(request.auth.uid); }
+    function valide() {
+      return admin() || (connecte() && exists(fiche()) && get(fiche()).data.status == 'approved');
+    }
 
-    // Membres : tout le monde voit la liste, chacun ne modifie que sa fiche
     match /members/{uid} {
-      allow read: if connecte();
-      allow write: if connecte() && request.auth.uid == uid;
+      allow read: if valide() || (connecte() && request.auth.uid == uid);
+      // Inscription : la personne crée sa fiche « en attente » ; seul l'admin se crée directement validé
+      allow create: if connecte() && request.auth.uid == uid && (
+        admin() ||
+        (request.resource.data.status == 'pending'
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'joined', 'warnings', 'badges', 'status', 'notified'])
+          && request.resource.data.badges.size() == 0 && request.resource.data.warnings.size() == 0)
+      );
+      // Un membre ne peut changer que son prénom ; tout le reste (validation, badges, mises en garde, blocage) est réservé à l'admin
+      allow update: if admin() || (connecte() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));
+      allow delete: if admin();
     }
 
-    // Publications : tout le cercle lit, chacun publie et supprime seulement les siennes
     match /posts/{id} {
-      allow read: if connecte();
-      allow create: if connecte() && request.resource.data.uid == request.auth.uid
+      allow read: if valide();
+      allow create: if valide() && request.resource.data.uid == request.auth.uid
                     && request.resource.data.type in ['objectif', 'jour', 'semaine', 'message'];
-      allow update, delete: if connecte() && resource.data.uid == request.auth.uid;
+      allow update, delete: if admin() || (valide() && resource.data.uid == request.auth.uid);
     }
 
-    // Jetons de notification : chacun enregistre le sien, personne ne lit ceux des autres
     match /tokens/{token} {
       allow create, update: if connecte() && request.resource.data.uid == request.auth.uid;
       allow read, delete: if false;

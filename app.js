@@ -1,9 +1,9 @@
 import { firebaseConfig, vapidKey } from "./firebase-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  updateProfile, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc,
-  onSnapshot, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  updateProfile, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc,
+  onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
 const fb = initializeApp(firebaseConfig);
@@ -14,8 +14,15 @@ const db = initializeFirestore(fb, { localCache: persistentLocalCache({ tabManag
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-let me = null, posts = [], members = [], view = "fil", filter = "tout", online = navigator.onLine;
-let unsub = [], swReg = null, installEvt = null;
+// Administrateur de la communauté
+const ADMIN_EMAIL = "abropia823@gmail.com";
+const ADMIN_NAME = "Dénahouéa Merveil";
+const BADGES = ["Discipliné(e)", "Zéro scroll", "Objectifs tenus", "Exemple du cercle"];
+const INACTIF_JOURS = 14;
+
+let me = null, myDoc = undefined, posts = [], members = [], view = "fil", filter = "tout", online = navigator.onLine;
+let unsub = [], dataUnsub = [], swReg = null, installEvt = null, autoChecked = false;
+const isAdmin = () => !!me && me.email.toLowerCase() === ADMIN_EMAIL;
 
 /* ---------- service worker (hors ligne + rappels) ---------- */
 if ("serviceWorker" in navigator) {
@@ -65,6 +72,7 @@ function loginView(mode = "in") {
   $("#app").innerHTML = `<div class="login">
     <div class="login-brand">
       <div class="wordmark">cercle tb</div>
+      <p class="welcome">Bienvenue à l'école de discipline de <b>${ADMIN_NAME}</b></p>
       <p>Un objectif par semaine. Un bilan chaque soir. Zéro scroll.</p>
     </div>
     <form id="lf" class="login-card">
@@ -100,31 +108,78 @@ function loginView(mode = "in") {
       if (create) {
         const name = $("#lname").value.trim();
         const cred = await createUserWithEmailAndPassword(auth, mail, pass);
+        pendingName = name;
         await updateProfile(cred.user, { displayName: name });
-        await setDoc(doc(db, "members", cred.user.uid), { uid: cred.user.uid, name, joined: Date.now() });
-        if (me) { me.name = name; render(); } else start(cred.user);
+        if (me) me.name = name;
       } else await signInWithEmailAndPassword(auth, mail, pass);
     } catch (err) { $("#lerr").textContent = ERR[err.code] || "Une erreur est survenue. Réessaie."; btn.disabled = false; }
   };
 }
 
 /* ---------- données ---------- */
-function start(user) {
-  if (me && me.uid === user.uid) return;
-  me = { uid: user.uid, name: user.displayName || user.email.split("@")[0], email: user.email };
-  unsub.forEach(u => u()); unsub = [];
-  if (user.displayName) setDoc(doc(db, "members", user.uid), { uid: user.uid, name: user.displayName }, { merge: true }).catch(() => {});
-  unsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(300)), { includeMetadataChanges: true }, snap => {
+let pendingName = null;
+function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; posts = []; members = []; }
+function startData() {
+  if (dataUnsub.length) return;
+  dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(400)), { includeMetadataChanges: true }, snap => {
     posts = snap.docs.map(d => ({ ...d.data(), _pending: d.metadata.hasPendingWrites }));
     render();
   }, () => {}));
-  unsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); }, () => {}));
+  dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); autoDiscipline(); }, () => {}));
+}
+function start(user) {
+  if (me && me.uid === user.uid) return;
+  me = { uid: user.uid, name: user.displayName || pendingName || user.email.split("@")[0], email: user.email, verified: user.emailVerified };
+  myDoc = undefined;
+  unsub.forEach(u => u()); unsub = []; stopData();
   render();
+  if (isAdmin() && !user.emailVerified) { myDoc = { status: "verify" }; render(); return; }
+  unsub.push(onSnapshot(doc(db, "members", user.uid), snap => {
+    if (!snap.exists()) {
+      const name = auth.currentUser?.displayName || pendingName || me.name;
+      const base = { uid: me.uid, name, email: me.email, joined: Date.now(), warnings: [], badges: [] };
+      setDoc(doc(db, "members", me.uid), isAdmin() ? { ...base, status: "approved", role: "admin" } : { ...base, status: "pending", notified: false })
+        .catch(() => toast("Impossible d'envoyer ta demande. Vérifie ta connexion."));
+      myDoc = { ...base, status: isAdmin() ? "approved" : "pending" };
+    } else {
+      myDoc = snap.data();
+      if (myDoc.name) me.name = myDoc.name;
+      if (isAdmin() && (myDoc.role !== "admin" || myDoc.status !== "approved")) {
+        setDoc(doc(db, "members", me.uid), { role: "admin", status: "approved", email: me.email }, { merge: true }).catch(() => {});
+        myDoc = { ...myDoc, role: "admin", status: "approved" };
+      }
+    }
+    if (myDoc.status === "approved") startData(); else stopData();
+    render();
+  }, () => { myDoc = { status: "pending" }; render(); }));
 }
 onAuthStateChanged(auth, u => {
   if (u) start(u);
-  else { me = null; unsub.forEach(f => f()); unsub = []; loginView(); }
+  else { me = null; myDoc = undefined; unsub.forEach(f => f()); unsub = []; stopData(); loginView(); }
 });
+
+/* ---------- administration ---------- */
+const adminUid = () => (members.find(m => m.role === "admin") || {}).uid;
+const memberOf = uid => members.find(m => m.uid === uid) || {};
+function lastJour(uid) { const p = posts.find(x => x.uid === uid && x.type === "jour"); return p ? p.ts : 0; }
+function daysInactive(m) {
+  const since = Math.max(lastJour(m.uid), m.joined || 0, m.approvedAt || 0, m.unblockedAt || 0);
+  return Math.floor((Date.now() - since) / 864e5);
+}
+function twoWeeksFailed(uid) {
+  const w = posts.filter(p => p.uid === uid && p.type === "semaine").slice(0, 2);
+  return w.length === 2 && w.every(p => !p.atteint);
+}
+async function setMember(uid, data) {
+  try { await updateDoc(doc(db, "members", uid), data); } catch (e) { toast("Action refusée. Vérifie ta connexion."); }
+}
+function autoDiscipline() {
+  // L'administrateur bloque automatiquement ceux qui n'envoient plus de bilan depuis 2 semaines
+  if (!isAdmin() || autoChecked || !posts.length) return;
+  autoChecked = true;
+  members.filter(m => m.status === "approved" && m.role !== "admin" && daysInactive(m) >= INACTIF_JOURS)
+    .forEach(m => setMember(m.uid, { status: "blocked", blockedReason: `Aucun bilan depuis ${INACTIF_JOURS} jours`, blockedAt: Date.now() }));
+}
 
 const TYPES = { objectif: "Objectif de la semaine", jour: "Bilan du jour", semaine: "Bilan de la semaine", message: "Message" };
 async function savePost(p) {
@@ -148,6 +203,12 @@ function statsFor(uid) {
 
 /* ---------- vues ---------- */
 function avatar(name, cls = "") { return `<div class="av ${cls}">${esc((name || "?")[0].toUpperCase())}</div>`; }
+function nameTags(uid) {
+  const m = memberOf(uid);
+  const founder = m.role === "admin" ? `<span class="founder">Fondateur</span>` : "";
+  const b = (m.badges || []).map(x => `<span class="badge">★ ${esc(x)}</span>`).join("");
+  return founder + b;
+}
 function postHTML(p) {
   let tag = `<span class="tag">${TYPES[p.type] || ""}</span>`;
   if (p.type === "semaine") tag = `<span class="tag ${p.atteint ? "ok" : "ko"}">${p.atteint ? "Objectif atteint" : "Objectif non atteint"}</span>`;
@@ -155,8 +216,8 @@ function postHTML(p) {
   if (p.type === "message") tag = "";
   const d = new Date(p.ts);
   return `<article class="card post">
-    <div class="post-head">${avatar(p.name)}
-      <div class="meta"><strong>${esc(p.name)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
+    <div class="post-head">${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
+      <div class="meta"><strong>${esc(p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
     ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
@@ -165,7 +226,7 @@ function postHTML(p) {
 }
 function header() {
   return `<header class="topbar"><div class="topbar-in">
-    <div class="wordmark small">cercle tb</div>
+    <div class="brandbox"><div class="wordmark small">cercle tb</div><div class="school">École de discipline de ${ADMIN_NAME}</div></div>
     <div class="top-right">
       <span class="net ${online ? "" : "off"}">${online ? "En ligne" : "Hors ligne"}</span>
       <button class="icon-btn" id="menu" aria-label="Menu">⋮</button>
@@ -181,7 +242,11 @@ function filView() {
   const n = nextReminder(), s = statsFor(me.uid), ws = weekStart(new Date());
   const list = posts.filter(p => filter === "tout" || p.type === filter || (filter === "moi" && p.uid === me.uid));
   const labels = { tout: "Toutes les publications", objectif: "Objectifs", jour: "Bilans du jour", semaine: "Bilans de semaine", message: "Messages", moi: "Mes publications" };
+  const warns = (myDoc && myDoc.warnings) || [];
+  const pend = members.filter(m => m.status === "pending").length;
   return `${header()}<main class="page">${notifBanner()}
+  ${isAdmin() && pend ? `<button class="card banner admin-alert" id="go-dem"><span><b>${pend} demande${pend > 1 ? "s" : ""}</b> en attente de ta validation</span><span class="chev">›</span></button>` : ""}
+  ${warns.length ? `<div class="card warn"><b>Mise en garde de ${ADMIN_NAME}</b>${warns.slice(-2).map(w => `<p>${esc(w.text)}<small> · ${fmtDate(new Date(w.ts))}</small></p>`).join("")}</div>` : ""}
   <section class="card composer" id="composer">
     ${avatar(me.name)}
     <button class="composer-input" id="compose">Partage ton objectif ou ton bilan…</button>
@@ -198,35 +263,94 @@ function filView() {
   ${list.length ? list.map(postHTML).join("") : `<div class="card empty">Aucune publication pour l'instant.<br>Partage ton objectif de la semaine pour lancer le groupe.</div>`}
   </main>`;
 }
+function memberRow(m, admin) {
+  const s = statsFor(m.uid), inact = daysInactive(m), fail = twoWeeksFailed(m.uid);
+  const flags = admin && m.role !== "admin" ? [
+    m.status === "blocked" ? `<span class="tag ko">Bloqué</span>` : "",
+    m.status === "approved" && inact >= 7 ? `<span class="tag ko">Inactif ${inact} j</span>` : "",
+    fail ? `<span class="tag ko">2 semaines non tenues</span>` : "",
+    (m.warnings || []).length ? `<span class="tag">${m.warnings.length} mise${m.warnings.length > 1 ? "s" : ""} en garde</span>` : ""
+  ].join("") : "";
+  return `<div class="member">
+    ${avatar(m.name, m.role === "admin" ? "admin" : "")}
+    <div class="meta"><strong>${esc(m.name)}${m.uid === me.uid ? " (toi)" : ""} ${nameTags(m.uid)}</strong>
+      <small>${s.streak} j 0 scroll · ${s.done} objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}</small>
+      ${flags ? `<div class="flags">${flags}</div>` : ""}</div>
+    ${admin && m.role !== "admin" ? `<button class="icon-btn dark small-btn" data-m="${m.uid}" aria-label="Actions">⋮</button>` :
+      m.role === "admin" ? "" : `<span class="tag ${s.obj ? "ok" : "ko"}">${s.obj ? "Objectif envoyé" : "Sans objectif"}</span>`}</div>`;
+}
 function membresView() {
-  const sorted = [...members].sort((a, b) => statsFor(b.uid).streak - statsFor(a.uid).streak);
+  const admin = isAdmin();
+  const list = members.filter(m => m.status === "approved" || (admin && m.status === "blocked"));
+  const founder = list.find(m => m.role === "admin");
+  const others = list.filter(m => m.role !== "admin").sort((a, b) => statsFor(b.uid).streak - statsFor(a.uid).streak);
   return `${header()}<main class="page">
-  <div class="section-head"><h2>Membres · ${members.length}</h2></div>
+  <section class="card founder-card">
+    <div class="av admin big">${esc(ADMIN_NAME[0])}</div>
+    <div class="meta"><strong>${ADMIN_NAME}</strong><small>Fondateur et responsable de l'école de discipline</small></div>
+  </section>
+  <div class="section-head"><h2>Membres · ${others.filter(m => m.status === "approved").length}</h2></div>
   <section class="card list">
-  ${sorted.map(m => { const s = statsFor(m.uid); return `<div class="member">
-    ${avatar(m.name)}
-    <div class="meta"><strong>${esc(m.name)}${m.uid === me.uid ? " (toi)" : ""}</strong>
-      <small>${s.streak} j 0 scroll · ${s.done} objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}</small></div>
-    <span class="tag ${s.obj ? "ok" : "ko"}">${s.obj ? "Objectif envoyé" : "Sans objectif"}</span></div>`; }).join("") || `<div class="empty">Aucun membre pour l'instant.</div>`}
+  ${others.map(m => memberRow(m, admin)).join("") || `<div class="empty">Aucun membre pour l'instant.</div>`}
+  </section>${founder ? "" : ""}</main>`;
+}
+function demandesView() {
+  const list = members.filter(m => m.status === "pending" || m.status === "refused").sort((a, b) => (b.joined || 0) - (a.joined || 0));
+  return `${header()}<main class="page">
+  <div class="section-head"><h2>Demandes d'accès</h2></div>
+  <section class="card list">
+  ${list.map(m => `<div class="member">${avatar(m.name)}
+    <div class="meta"><strong>${esc(m.name)}</strong><small>${esc(m.email || "")} · ${m.joined ? fmtDate(new Date(m.joined)) : ""}</small>
+    ${m.status === "refused" ? `<div class="flags"><span class="tag ko">Refusée</span></div>` : ""}</div>
+    <button class="icon-btn dark small-btn" data-d="${m.uid}" aria-label="Décider">⋮</button></div>`).join("") || `<div class="empty">Aucune demande en attente.</div>`}
   </section></main>`;
+}
+function gateView() {
+  const st = myDoc ? myDoc.status : "loading";
+  const box = (title, text, extra = "") => `<div class="login"><div class="login-brand"><div class="wordmark">cercle tb</div>
+    <p class="welcome">Bienvenue à l'école de discipline de <b>${ADMIN_NAME}</b></p></div>
+    <div class="login-card gate"><h2>${title}</h2><p>${text}</p>${extra}<hr><button class="btn btn-secondary" id="out">Se déconnecter</button></div></div>`;
+  if (st === "loading") return `<div class="splash"><div class="wordmark">cercle tb</div></div>`;
+  if (st === "verify") return box("Confirme ton adresse e-mail", `Un lien a été envoyé à <b>${esc(me.email)}</b>. Ouvre-le, puis reviens ici.`,
+    `<button class="btn btn-primary" id="verified">J'ai confirmé</button><button class="link" id="resend">Renvoyer le lien</button>`);
+  if (st === "pending") return box("Demande envoyée", `Ta demande pour rejoindre le cercle a été envoyée à <b>${ADMIN_NAME}</b>. Tu auras accès dès qu'il l'aura validée.`);
+  if (st === "refused") return box("Demande refusée", `${ADMIN_NAME} n'a pas validé ta demande pour le moment.`);
+  if (st === "blocked") return box("Accès suspendu", `Ton accès a été suspendu${myDoc.blockedReason ? ` : ${esc(myDoc.blockedReason)}` : ""}. Contacte ${ADMIN_NAME} pour revenir dans le cercle.`);
+  return box("Accès en attente", "Patiente quelques instants.");
 }
 function render() {
   if (!me) return;
   if ($("#layer .sheet")) return; // ne pas effacer une saisie en cours
-  $("#app").innerHTML = view === "membres" ? membresView() : filView();
+  if (!myDoc || myDoc.status !== "approved") {
+    $("#app").innerHTML = gateView();
+    if ($("#out")) $("#out").onclick = () => signOut(auth);
+    if ($("#resend")) $("#resend").onclick = async () => { try { await sendEmailVerification(auth.currentUser); toast("Lien renvoyé"); } catch (e) { toast("Réessaie dans quelques minutes."); } };
+    if ($("#verified")) $("#verified").onclick = async () => {
+      await auth.currentUser.reload(); await auth.currentUser.getIdToken(true);
+      if (auth.currentUser.emailVerified) { const u = auth.currentUser; me = null; start(u); } else toast("Pas encore confirmé. Ouvre le lien reçu par e-mail.");
+    };
+    if (myDoc && myDoc.status === "verify" && !me.verifySent) { me.verifySent = true; sendEmailVerification(auth.currentUser).catch(() => {}); }
+    return;
+  }
+  const admin = isAdmin();
+  if (view === "demandes" && !admin) view = "fil";
+  $("#app").innerHTML = view === "membres" ? membresView() : view === "demandes" ? demandesView() : filView();
+  const pend = members.filter(m => m.status === "pending").length;
   $("#menu").onclick = () => openMenu([
     ["fil", "Fil du groupe", "Objectifs et bilans de tous"],
-    ["membres", "Membres", `${members.length} dans le cercle`],
+    ["membres", "Membres", admin ? "Mises en garde, badges, blocage" : "Qui est dans le cercle"],
+    ...(admin ? [["demandes", `Demandes d'accès${pend ? ` (${pend})` : ""}`, "Valider les nouveaux membres"]] : []),
     ["notif", "Activer les rappels", "23h30 et le dimanche"],
     ["install", "Installer l'application", "Icône sur l'écran d'accueil"],
     ["out", "Se déconnecter", esc(me.email)]
   ], k => {
-    if (k === "fil" || k === "membres") { view = k; render(); }
+    if (k === "fil" || k === "membres" || k === "demandes") { view = k; render(); scrollTo(0, 0); }
     if (k === "notif") enableNotifs();
     if (k === "install") install();
     if (k === "out") signOut(auth);
   }, $("#menu").parentElement, view);
   if ($("#notif")) $("#notif").onclick = enableNotifs;
+  if ($("#go-dem")) $("#go-dem").onclick = () => { view = "demandes"; render(); scrollTo(0, 0); };
   if ($("#compose")) $("#compose").onclick = () => openMenu([
     ["objectif", "Objectif de la semaine", "Photo du papier, floutée ou non"],
     ["jour", "Bilan du jour", "0 scroll ? Ce que tu as fait"],
@@ -237,6 +361,50 @@ function render() {
     ["tout", "Toutes les publications", ""], ["objectif", "Objectifs", ""], ["jour", "Bilans du jour", ""],
     ["semaine", "Bilans de semaine", ""], ["message", "Messages", ""], ["moi", "Mes publications", ""]
   ], k => { filter = k; render(); }, $("#flt").parentElement, filter);
+  document.querySelectorAll("[data-d]").forEach(b => b.onclick = () => {
+    const uid = b.dataset.d;
+    openMenu([["ok", "Accepter", "Donner accès au cercle"], ["no", "Refuser", "La personne ne verra rien du cercle"]], k => {
+      if (k === "ok") setMember(uid, { status: "approved", approvedAt: Date.now(), unblockedAt: Date.now() }).then(() => toast("Membre accepté"));
+      if (k === "no") setMember(uid, { status: "refused" }).then(() => toast("Demande refusée"));
+    }, b.parentElement);
+  });
+  document.querySelectorAll("[data-m]").forEach(b => b.onclick = () => {
+    const m = memberOf(b.dataset.m), blocked = m.status === "blocked";
+    const has = m.badges || [];
+    openMenu([
+      ["warn", "Mettre en garde", "Message visible uniquement par ce membre"],
+      ["badge", "Donner un badge", has.length ? `Actuel : ${esc(has.join(", "))}` : "Récompenser sa discipline"],
+      ...(has.length ? [["unbadge", "Retirer les badges", ""]] : []),
+      ...((m.warnings || []).length ? [["clear", "Effacer les mises en garde", ""]] : []),
+      [blocked ? "unblock" : "block", blocked ? "Débloquer" : "Bloquer l'accès", blocked ? "Le membre revient dans le cercle" : "Le membre ne voit plus le cercle"]
+    ], k => {
+      if (k === "warn") openWarn(m);
+      if (k === "badge") openMenu(BADGES.filter(x => !has.includes(x)).map(x => [x, x, ""]), x => setMember(m.uid, { badges: arrayUnion(x) }).then(() => toast("Badge donné")), b.parentElement);
+      if (k === "unbadge") setMember(m.uid, { badges: [] });
+      if (k === "clear") setMember(m.uid, { warnings: [] });
+      if (k === "block") setMember(m.uid, { status: "blocked", blockedReason: "Décision de l'administrateur", blockedAt: Date.now() });
+      if (k === "unblock") setMember(m.uid, { status: "approved", blockedReason: null, unblockedAt: Date.now() });
+    }, b.parentElement);
+  });
+}
+function openWarn(m) {
+  $("#layer").innerHTML = "";
+  const wrap = document.createElement("div"); wrap.className = "sheet";
+  const preset = twoWeeksFailed(m.uid) ? "Tu n'as pas tenu tes objectifs deux semaines de suite. Reprends-toi cette semaine." :
+    `Tu n'as pas envoyé ton bilan depuis ${daysInactive(m)} jours. Sans bilan pendant 2 semaines, ton accès sera suspendu.`;
+  wrap.innerHTML = `<div class="panel" role="dialog" aria-label="Mise en garde">
+    <div class="sheet-head"><h2>Mettre en garde ${esc(m.name)}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    <textarea id="txt" maxlength="400">${esc(preset)}</textarea>
+    <button class="btn btn-primary" id="send">Envoyer la mise en garde</button></div>`;
+  $("#layer").appendChild(wrap);
+  const close = () => { $("#layer").innerHTML = ""; render(); };
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
+  $("#x").onclick = close;
+  $("#send").onclick = () => {
+    const text = $("#txt").value.trim(); if (!text) return;
+    setMember(m.uid, { warnings: arrayUnion({ text, ts: Date.now() }) }).then(() => toast("Mise en garde envoyée"));
+    close();
+  };
 }
 
 /* ---------- rappels ---------- */
@@ -246,6 +414,7 @@ async function enableNotifs() {
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { toast("Rappels refusés. Tu peux les autoriser dans les réglages."); return; }
     const reg = swReg || await navigator.serviceWorker.ready;
+    if (!vapidKey || vapidKey === "A_REMPLACER") { toast("Les rappels arrivent bientôt : la configuration est en cours."); return; }
     const token = await getToken(getMessaging(fb), { vapidKey, serviceWorkerRegistration: reg });
     await setDoc(doc(db, "tokens", token), { uid: me.uid, ts: Date.now() });
     toast("Rappels activés"); render();
@@ -334,4 +503,5 @@ addEventListener("online", () => { online = true; render(); });
 addEventListener("offline", () => { online = false; render(); });
 setInterval(render, 60000);
 const want = new URLSearchParams(location.search).get("ouvrir");
-if (want && TYPES[want]) { const t = setInterval(() => { if (me) { clearInterval(t); openSheet(want); } }, 300); }
+if (want && TYPES[want]) { const t = setInterval(() => { if (me && myDoc && myDoc.status === "approved") { clearInterval(t); openSheet(want); } }, 300); }
+if (want === "demandes") view = "demandes";
