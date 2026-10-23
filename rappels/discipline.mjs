@@ -56,6 +56,80 @@ if (nouvelles.length) {
   if (envoye) for (const m of nouvelles) await m.ref.update({ notified: true });
 }
 
+// 2 bis. E-mail de bienvenue après validation
+const ADMIN_NAME = "Dénahouéa Merveil";
+function bienvenue(prenom) {
+  const sections = [
+    ["Le principe", [
+      "Le Cercle TB réunit des personnes motivées qui veulent enfin tenir leurs objectifs.",
+      "Notre but commun : zéro scroll sur TikTok, Facebook et les autres réseaux, pour mettre ce temps dans nos objectifs.",
+      "Personne ne te juge ici. On avance ensemble, un jour après l'autre."
+    ]],
+    ["Ta semaine dans le cercle", [
+      "<b>Dimanche à 15h</b> : écris ton objectif de la semaine sur un papier, prends-le en photo et publie-le (« Objectif de la semaine »). Tu peux flouter la photo si tu veux garder ton objectif privé.",
+      "<b>Du lundi au samedi à 23h30</b> : fais ton bilan du jour (« Bilan du jour ») : as-tu scrollé ou non, et qu'as-tu fait pour ton objectif ?",
+      "<b>Dimanche à 8h</b> : fais ton bilan de la semaine (« Bilan de la semaine ») : objectif atteint ou non, ce qui a marché, ce qui a bloqué.",
+      "Une notification te rappelle chaque rendez-vous, à condition d'avoir activé les rappels."
+    ]],
+    ["Bien démarrer", [
+      `Ouvre l'application : <a href="${APP_URL}">${APP_URL.replace("https://", "")}</a> dans Chrome.`,
+      "Installe-la : menu ⋮ de Chrome, puis « Installer l'application ». Une icône « tb » apparaît sur ton écran d'accueil.",
+      "Active les rappels : dans l'application, menu ⋮, puis « Activer les rappels », puis « Autoriser ».",
+      "Publie ton premier objectif dès maintenant, sans attendre dimanche."
+    ]],
+    ["Les règles du cercle", [
+      "Un bilan du jour chaque soir, du lundi au samedi. C'est la règle la plus importante.",
+      "Un objectif écrit sur papier chaque dimanche : précis, réaliste et mesurable.",
+      "L'honnêteté avant tout : si tu as scrollé, dis-le. Un bilan honnête vaut mieux qu'un faux « 0 scroll ».",
+      "Le respect de chacun : on encourage, on ne se moque jamais.",
+      "Ce qui est partagé dans le cercle reste dans le cercle : aucune capture ni photo d'un membre partagée à l'extérieur."
+    ]],
+    ["Les erreurs à ne pas faire", [
+      "Disparaître sans prévenir : <b>14 jours sans bilan du jour entraînent la suspension automatique de ton accès</b>.",
+      "Se fixer un objectif vague (« travailler plus ») : préfère « réviser 2 chapitres » ou « faire 3 séances de sport ».",
+      "Mentir dans ses bilans : tu ne trompes que toi-même.",
+      "Ne tenir aucun objectif deux semaines de suite sans réagir : tu recevras une mise en garde.",
+      "Oublier d'activer les rappels, puis rater les rendez-vous.",
+      "Publier des messages sans rapport avec la discipline et les objectifs."
+    ]],
+    ["Mises en garde, blocage et badges", [
+      "Si tu ne respectes pas tes engagements, tu recevras une mise en garde de " + ADMIN_NAME + ", visible par toi seul dans l'application.",
+      "Sans bilan pendant 2 semaines, ton accès est suspendu. Pour revenir, contacte " + ADMIN_NAME + ".",
+      "Les membres réguliers qui envoient leurs objectifs et les atteignent reçoivent des badges (« Discipliné(e) », « Zéro scroll », « Objectifs tenus »…), visibles par tout le cercle."
+    ]]
+  ];
+  const html = `<div style="font-family:Segoe UI,Roboto,Arial,sans-serif;max-width:600px;margin:0 auto;color:#050505;line-height:1.55">
+  <div style="background:#1D9BF0;color:#fff;padding:22px 24px;border-radius:8px 8px 0 0">
+    <div style="font-size:26px;font-weight:800;letter-spacing:-1px">cercle tb</div>
+    <div style="font-size:14px;opacity:.95">École de discipline de ${ADMIN_NAME}</div>
+  </div>
+  <div style="background:#fff;border:1px solid #E4E6EB;border-top:0;padding:24px;border-radius:0 0 8px 8px">
+    <p style="font-size:17px;margin:0 0 12px">Bonjour ${prenom},</p>
+    <p style="margin:0 0 12px">Ta demande a été validée : <b>bienvenue dans l'école de discipline</b> ! Voici tout ce qu'il faut savoir pour bien vivre dans le cercle.</p>
+    ${sections.map(([t, items]) => `<h2 style="font-size:17px;color:#0B1F3F;margin:22px 0 8px;border-bottom:2px solid #E8F5FE;padding-bottom:4px">${t}</h2>
+    <ul style="margin:0;padding-left:20px">${items.map(i => `<li style="margin:0 0 6px">${i}</li>`).join("")}</ul>`).join("")}
+    <p style="margin:24px 0 0;text-align:center"><a href="${APP_URL}" style="display:inline-block;background:#1D9BF0;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:6px">Ouvrir le Cercle TB</a></p>
+    <p style="margin:24px 0 0">On compte sur toi. Tiens bon !<br><b>${ADMIN_NAME}</b><br><span style="color:#65676B">Fondateur du Cercle TB</span></p>
+  </div></div>`;
+  const text = `Bonjour ${prenom},\n\nTa demande a été validée : bienvenue dans l'école de discipline de ${ADMIN_NAME} !\n\n` +
+    sections.map(([t, items]) => `${t.toUpperCase()}\n` + items.map(i => "- " + i.replace(/<[^>]+>/g, "")).join("\n")).join("\n\n") +
+    `\n\nApplication : ${APP_URL}\n\nTiens bon !\n${ADMIN_NAME}`;
+  return { html, text };
+}
+const aAccueillir = members.filter(m => m.status === "approved" && m.role !== "admin" && !m.welcomed && m.email);
+if (aAccueillir.length && process.env.GMAIL_APP_PASSWORD) {
+  const t = nodemailer.createTransport({ service: "gmail", auth: { user: ADMIN_EMAIL, pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, "") } });
+  for (const m of aAccueillir) {
+    try {
+      const prenom = (m.name || "").split(" ")[0] || "à toi";
+      const { html, text } = bienvenue(prenom);
+      await t.sendMail({ from: `${ADMIN_NAME} · Le Cercle TB <${ADMIN_EMAIL}>`, to: m.email, subject: `Bienvenue dans le Cercle TB, ${prenom} : tout ce qu'il faut savoir`, html, text });
+      await m.ref.update({ welcomed: true, welcomedAt: now });
+      console.log("Bienvenue envoyée à", m.name);
+    } catch (e) { console.log("Bienvenue non envoyée à", m.name, ":", e.message); }
+  }
+} else if (aAccueillir.length) console.log(aAccueillir.length, "bienvenue(s) en attente du mot de passe Gmail");
+
 // 3. Blocage automatique après 14 jours sans bilan du jour
 const actifs = members.filter(m => m.status === "approved" && m.role !== "admin");
 for (const m of actifs) {
