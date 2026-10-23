@@ -9,4 +9,4 @@ export const firebaseConfig = {
 };
 
 // Clé "Web Push" (Firebase > Paramètres du projet > Cloud Messaging > Certificats Web push)
-export const vapidKey = "A_REMPLACER";
+export const vapidKey = "BCB0djCnxHWueSkdrJBnngJDmplZi6eqg5hX1Zvncz3zziMHcyWMjpEzxycapUtTiGBObflbl1uwxuFfmzpoLIc";
