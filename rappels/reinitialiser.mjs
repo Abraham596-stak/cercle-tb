@@ -1,18 +1,19 @@
-// Remet le Cercle TB à zéro : supprime tous les comptes, membres, publications et jetons de notification.
+// Supprime un seul compte (par e-mail) : son accès, sa fiche membre, ses publications et ses jetons.
 import admin from "firebase-admin";
 admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
 const db = admin.firestore();
-for (const c of ["members", "posts", "tokens"]) {
-  const snap = await db.collection(c).get();
-  for (let i = 0; i < snap.docs.length; i += 400) {
-    const b = db.batch(); snap.docs.slice(i, i + 400).forEach(d => b.delete(d.ref)); await b.commit();
+const email = (process.env.EMAIL || "").trim().toLowerCase();
+if (!email) { console.log("Aucun e-mail donné"); process.exit(1); }
+let uid = null;
+try { const u = await admin.auth().getUserByEmail(email); uid = u.uid; await admin.auth().deleteUser(uid); console.log("Compte supprimé :", email); }
+catch (e) { console.log("Aucun compte de connexion pour", email); }
+const fiches = (await db.collection("members").get()).docs.filter(d => d.id === uid || (d.data().email || "").toLowerCase() === email);
+for (const f of fiches) {
+  const id = f.id;
+  for (const c of ["posts", "tokens"]) {
+    const s = await db.collection(c).where("uid", "==", id).get();
+    for (const d of s.docs) await d.ref.delete();
+    console.log(`${c} supprimé(s) :`, s.size);
   }
-  console.log(`${c} : ${snap.size} supprimé(s)`);
+  await f.ref.delete(); console.log("Fiche membre supprimée");
 }
-let total = 0, token;
-do {
-  const page = await admin.auth().listUsers(1000, token);
-  if (page.users.length) { await admin.auth().deleteUsers(page.users.map(u => u.uid)); total += page.users.length; }
-  token = page.pageToken;
-} while (token);
-console.log(`comptes : ${total} supprimé(s)`);

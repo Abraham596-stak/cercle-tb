@@ -1,14 +1,13 @@
-# Remise à zéro complète (lancement manuel uniquement)
-name: Remise a zero
+# Supprime un compte précis (lancement manuel uniquement)
+name: Supprimer un compte
 on:
   workflow_dispatch:
     inputs:
-      confirmation:
-        description: "Écris EFFACER pour tout supprimer"
+      email:
+        description: "E-mail du compte à supprimer"
         required: true
 jobs:
-  effacer:
-    if: ${{ inputs.confirmation == 'EFFACER' }}
+  supprimer:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,3 +21,4 @@ jobs:
       - run: node reinitialiser.mjs
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          EMAIL: ${{ inputs.email }}
