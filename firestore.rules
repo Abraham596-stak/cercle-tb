@@ -4,7 +4,7 @@ service cloud.firestore {
     function connecte() { return request.auth != null; }
     // L'administrateur : Dénahouéa Merveil (adresse confirmée obligatoire)
     function admin() {
-      return connecte() && request.auth.token.email == 'abropia823@gmail.com' && request.auth.token.email_verified == true;
+      return connecte() && request.auth.token.email == 'denahoueamerveil@gmail.com' && request.auth.token.email_verified == true;
     }
     function fiche() { return /databases/$(database)/documents/members/$(request.auth.uid); }
     function valide() {

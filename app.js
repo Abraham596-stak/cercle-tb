@@ -15,7 +15,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // Administrateur de la communauté
-const ADMIN_EMAIL = "abropia823@gmail.com";
+const ADMIN_EMAIL = "denahoueamerveil@gmail.com";
 const ADMIN_NAME = "Dénahouéa Merveil";
 const BADGES = ["Discipliné(e)", "Zéro scroll", "Objectifs tenus", "Exemple du cercle"];
 const INACTIF_JOURS = 14;
@@ -37,7 +37,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "11";
+const APP_VERSION = "12";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {

@@ -5,7 +5,7 @@
 import admin from "firebase-admin";
 import nodemailer from "nodemailer";
 
-const ADMIN_EMAIL = "abropia823@gmail.com";
+const ADMIN_EMAIL = "denahoueamerveil@gmail.com";
 const APP_URL = "https://cercle-tb.web.app";
 const INACTIF_JOURS = 14;
 
