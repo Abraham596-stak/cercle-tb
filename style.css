@@ -170,3 +170,11 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .member .menu { top: 52px; }
 .gate p { margin: 0; color: var(--ink); text-align: center; }
 .gate .link { align-self: center; }
+
+/* Texte défilant */
+.ticker { overflow: hidden; background: #0B1F3F; color: #fff; font-size: 14px; font-weight: 600; white-space: nowrap; padding-block: 9px; }
+.ticker-track { display: inline-flex; gap: 48px; padding-left: 16px; animation: defile 60s linear infinite; }
+.ticker-track span::before { content: "★"; color: #FFD166; margin-right: 10px; }
+@keyframes defile { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .ticker-track { animation-duration: 180s; } }
+.topbar + .ticker { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 56px); z-index: 19; }

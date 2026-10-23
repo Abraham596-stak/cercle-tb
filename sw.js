@@ -1,5 +1,5 @@
 // Le Cercle TB : garde l'app en mémoire pour l'ouvrir sans réseau, et affiche les rappels.
-const CACHE = "cercle-tb-v10";
+const CACHE = "cercle-tb-v11";
 const FILES = ["./", "index.html", "style.css", "app.js", "firebase-config.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
@@ -14,10 +14,11 @@ self.addEventListener("fetch", e => {
   const same = url.origin === location.origin;
   const lib = url.hostname === "www.gstatic.com" || url.hostname.startsWith("fonts.");
   if (!same && !lib) return; // les données passent par Firebase, qui gère lui-même le hors ligne
+  const fresh = new Request(req, { cache: "no-store" });
   const save = res => { if (res.ok || res.type === "opaque") { const c = res.clone(); caches.open(CACHE).then(x => x.put(req, c)); } return res; };
   if (same) {
     // Réseau d'abord : les mises à jour apparaissent tout de suite ; la copie sert hors ligne
-    e.respondWith(fetch(req).then(save).catch(() => caches.match(req).then(r => r || caches.match("./"))));
+    e.respondWith(fetch(fresh).then(save).catch(() => caches.match(req).then(r => r || caches.match("./"))));
   } else {
     e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(save)));
   }

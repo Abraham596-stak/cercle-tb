@@ -11,7 +11,16 @@
     ],
     "headers": [
       {
-        "source": "sw.js",
+        "source": "**/*.@(html|js|css|webmanifest|json)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/",
         "headers": [
           {
             "key": "Cache-Control",

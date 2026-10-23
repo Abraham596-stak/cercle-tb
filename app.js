@@ -26,8 +26,31 @@ const isAdmin = () => !!me && me.email.toLowerCase() === ADMIN_EMAIL;
 
 /* ---------- service worker (hors ligne + rappels) ---------- */
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then(r => { swReg = r; }).catch(() => {});
+  // Mise à jour automatique : dès qu'une nouvelle version est publiée, la page se recharge toute seule
+  let reloading = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if (hadController && !reloading) { reloading = true; location.reload(); } });
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(r => {
+    swReg = r; r.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") r.update().catch(() => {}); });
+    setInterval(() => r.update().catch(() => {}), 5 * 60 * 1000);
+  }).catch(() => {});
 }
+// Filet de sécurité : compare la version en ligne avec celle affichée
+const APP_VERSION = "11";
+async function checkVersion() {
+  if (!navigator.onLine) return;
+  try {
+    const v = await (await fetch("version.json?t=" + Date.now(), { cache: "no-store" })).json();
+    if (v.v && v.v !== APP_VERSION && sessionStorage.getItem("ctb-reload") !== v.v) {
+      sessionStorage.setItem("ctb-reload", v.v);
+      const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k)));
+      location.reload();
+    }
+  } catch (e) {}
+}
+checkVersion();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkVersion(); });
 addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; });
 
 /* ---------- dates ---------- */
@@ -67,9 +90,19 @@ const ERR = {
 };
 const EYE = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
 const EYE_OFF = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.5 0-10-7-10-7a18 18 0 0 1 5.1-5.9M9.9 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="M2 2l20 20"/></svg>`;
+const MOTIVATION = [
+  "Bienvenue dans le cercle : ici, chacun avance, un jour après l'autre",
+  "La discipline, c'est choisir entre ce que tu veux maintenant et ce que tu veux le plus",
+  "Chaque soir sans scroll est une victoire sur toi-même",
+  "Tu n'as pas besoin d'être parfait, seulement régulier",
+  "Pose ton téléphone, prends ton papier, écris ton objectif",
+  "Les petits efforts répétés font les grands résultats",
+  "Ensemble, on tient bon"
+];
+const ticker = () => `<div class="ticker" aria-label="Messages de motivation"><div class="ticker-track">${[...MOTIVATION, ...MOTIVATION].map(t => `<span>${t}</span>`).join("")}</div></div>`;
 function loginView(mode = "in") {
   const create = mode === "new";
-  $("#app").innerHTML = `<div class="login">
+  $("#app").innerHTML = `${ticker()}<div class="login">
     <div class="login-brand">
       <div class="wordmark">cercle tb</div>
       <p class="welcome">Bienvenue à l'école de discipline de <b>${ADMIN_NAME}</b></p>
@@ -244,7 +277,7 @@ function filView() {
   const labels = { tout: "Toutes les publications", objectif: "Objectifs", jour: "Bilans du jour", semaine: "Bilans de semaine", message: "Messages", moi: "Mes publications" };
   const warns = (myDoc && myDoc.warnings) || [];
   const pend = members.filter(m => m.status === "pending").length;
-  return `${header()}<main class="page">${notifBanner()}
+  return `${header()}${ticker()}<main class="page">${notifBanner()}
   ${isAdmin() && pend ? `<button class="card banner admin-alert" id="go-dem"><span><b>${pend} demande${pend > 1 ? "s" : ""}</b> en attente de ta validation</span><span class="chev">›</span></button>` : ""}
   ${warns.length ? `<div class="card warn"><b>Mise en garde de ${ADMIN_NAME}</b>${warns.slice(-2).map(w => `<p>${esc(w.text)}<small> · ${fmtDate(new Date(w.ts))}</small></p>`).join("")}</div>` : ""}
   <section class="card composer" id="composer">
