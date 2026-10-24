@@ -178,3 +178,11 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 @keyframes defile { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .ticker-track { animation-duration: 180s; } }
 .topbar + .ticker { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 56px); z-index: 19; }
+
+.post-head { position: relative; }
+.post-more { position: absolute; right: 8px; top: -4px; }
+.post .post-head .meta { padding-right: 40px; }
+.post-head .menu { top: 34px; }
+.cta { padding: 12px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #E8F5FE; }
+.cta span { flex: 1; min-width: 180px; font-weight: 600; }
+.done { padding: 12px 16px; color: var(--ok); font-weight: 600; background: var(--ok-bg); }

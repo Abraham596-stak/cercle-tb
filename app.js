@@ -2,12 +2,14 @@ import { firebaseConfig, vapidKey } from "./firebase-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   updateProfile, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc,
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
+if (location.hostname.endsWith("github.io")) location.replace("https://cercle-tb.web.app/" + location.search);
 const fb = initializeApp(firebaseConfig);
 const auth = getAuth(fb);
+auth.languageCode = "fr";
 // Cache local : l'app marche hors ligne et envoie tout au retour du réseau
 const db = initializeFirestore(fb, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
 
@@ -37,7 +39,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "12";
+const APP_VERSION = "13";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -154,11 +156,11 @@ let pendingName = null;
 function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; posts = []; members = []; }
 function startData() {
   if (dataUnsub.length) return;
-  dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(400)), { includeMetadataChanges: true }, snap => {
+  dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(150)), { includeMetadataChanges: true }, snap => {
     posts = snap.docs.map(d => ({ ...d.data(), _pending: d.metadata.hasPendingWrites }));
     render();
   }, () => {}));
-  dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); autoDiscipline(); }, () => {}));
+  dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); }, () => {}));
 }
 function start(user) {
   if (me && me.uid === user.uid) return;
@@ -248,9 +250,10 @@ function postHTML(p) {
   if (p.type === "jour") tag = `<span class="tag ${p.zero ? "ok" : "ko"}">${p.zero ? "0 scroll" : "A scrollé"}</span>`;
   if (p.type === "message") tag = "";
   const d = new Date(p.ts);
+  const canDel = p.id && !p._pending && (p.uid === me.uid || isAdmin());
   return `<article class="card post">
-    <div class="post-head">${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
-      <div class="meta"><strong>${esc(p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
+    <div class="post-head">${canDel ? `<button class="icon-btn dark small-btn post-more" data-p="${esc(p.id)}" aria-label="Options">⋮</button>` : ""}${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
+      <div class="meta"><strong>${esc(memberOf(p.uid).name || p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
     ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
@@ -271,6 +274,16 @@ function notifBanner() {
   return `<div class="card banner"><span>${ios ? "Sur iPhone : Partager → « Sur l'écran d'accueil », puis ouvre l'app depuis l'icône pour activer les rappels." : "Active les rappels pour être prévenu à 23h30 et le dimanche."}</span>
     ${ios ? "" : `<button class="btn btn-primary btn-sm" id="notif">Activer</button>`}</div>`;
 }
+function todo(s) {
+  const now = new Date(), sun = now.getDay() === 0;
+  let t = null;
+  if (sun && now.getHours() >= 15 && !s.obj) t = ["objectif", "Ton objectif de la semaine n'est pas encore envoyé", "Envoyer mon objectif"];
+  else if (sun && now.getHours() < 15 && !posts.some(p => p.uid === me.uid && p.type === "semaine" && p.day === dayKey(now))) t = ["semaine", "Fais le bilan de ta semaine", "Faire mon bilan de semaine"];
+  else if (!sun && !s.today && now.getHours() >= 18) t = ["jour", "Ton bilan du jour t'attend", "Faire mon bilan du jour"];
+  else if (!s.obj && !sun) t = ["objectif", "Tu n'as pas encore d'objectif cette semaine", "Fixer mon objectif"];
+  if (!t) return s.today ? `<div class="card done">Bilan du jour envoyé. Bravo, continue comme ça !</div>` : "";
+  return `<div class="card cta"><span>${t[1]}</span><button class="btn btn-primary btn-sm" data-open="${t[0]}">${t[2]}</button></div>`;
+}
 function filView() {
   const n = nextReminder(), s = statsFor(me.uid), ws = weekStart(new Date());
   const list = posts.filter(p => filter === "tout" || p.type === filter || (filter === "moi" && p.uid === me.uid));
@@ -284,6 +297,7 @@ function filView() {
     ${avatar(me.name)}
     <button class="composer-input" id="compose">Partage ton objectif ou ton bilan…</button>
   </section>
+  ${todo(s)}
   <section class="card summary">
     <div class="sum-row">
       <div><b>${s.streak}</b><span>jour${s.streak > 1 ? "s" : ""} 0 scroll</span></div>
@@ -383,6 +397,7 @@ function render() {
     if (k === "out") signOut(auth);
   }, $("#menu").parentElement, view);
   if ($("#notif")) $("#notif").onclick = enableNotifs;
+  document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openSheet(b.dataset.open));
   if ($("#go-dem")) $("#go-dem").onclick = () => { view = "demandes"; render(); scrollTo(0, 0); };
   if ($("#compose")) $("#compose").onclick = () => openMenu([
     ["objectif", "Objectif de la semaine", "Photo du papier, floutée ou non"],
@@ -394,6 +409,14 @@ function render() {
     ["tout", "Toutes les publications", ""], ["objectif", "Objectifs", ""], ["jour", "Bilans du jour", ""],
     ["semaine", "Bilans de semaine", ""], ["message", "Messages", ""], ["moi", "Mes publications", ""]
   ], k => { filter = k; render(); }, $("#flt").parentElement, filter);
+  document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
+    const id = b.dataset.p;
+    openMenu([["del", "Supprimer la publication", "Action définitive"]], () => {
+      openMenu([["yes", "Oui, supprimer", ""], ["no", "Annuler", ""]], k => {
+        if (k === "yes") deleteDoc(doc(db, "posts", id)).then(() => toast("Publication supprimée")).catch(() => toast("Suppression refusée"));
+      }, b.parentElement);
+    }, b.parentElement);
+  });
   document.querySelectorAll("[data-d]").forEach(b => b.onclick = () => {
     const uid = b.dataset.d;
     openMenu([["ok", "Accepter", "Donner accès au cercle"], ["no", "Refuser", "La personne ne verra rien du cercle"]], k => {

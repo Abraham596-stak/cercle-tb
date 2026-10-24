@@ -15,8 +15,20 @@ if (!msg) { console.error("Type inconnu :", type); process.exit(1); }
 admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
 const db = admin.firestore();
 
+// Seuls les membres validés sont prévenus, et pas ceux qui ont déjà fait ce qui est demandé
+const membres = (await db.collection("members").get()).docs.map(d => d.data());
+const valides = new Set(membres.filter(m => m.status === "approved").map(m => m.uid));
+const ici = new Date(Date.now() + 3600e3); // heure locale (UTC+1)
+const jour = ici.toISOString().slice(0, 10);
+const depuis = Date.now() - 20 * 3600e3;
+const recents = (await db.collection("posts").where("ts", ">=", depuis).get()).docs.map(d => d.data());
+const dejaFait = new Set(recents.filter(p =>
+  (type === "jour" && p.type === "jour" && p.day === jour) ||
+  (type === "semaine" && p.type === "semaine" && p.day === jour) ||
+  (type === "objectif" && p.type === "objectif" && p.day === jour)
+).map(p => p.uid));
 const snap = await db.collection("tokens").get();
-const tokens = snap.docs.map(d => d.id);
+const tokens = snap.docs.filter(d => valides.has(d.data().uid) && !dejaFait.has(d.data().uid)).map(d => d.id);
 console.log(`${tokens.length} téléphone(s) à prévenir`);
 
 for (let i = 0; i < tokens.length; i += 500) {

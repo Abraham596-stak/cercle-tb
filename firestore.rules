@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function connecte() { return request.auth != null; }
-    // L'administrateur : Dénahouéa Merveil (adresse confirmée obligatoire)
     function admin() {
       return connecte() && request.auth.token.email == 'denahoueamerveil@gmail.com' && request.auth.token.email_verified == true;
     }
@@ -13,24 +12,28 @@ service cloud.firestore {
 
     match /members/{uid} {
       allow read: if valide() || (connecte() && request.auth.uid == uid);
-      // Inscription : la personne crée sa fiche « en attente » ; seul l'admin se crée directement validé
       allow create: if connecte() && request.auth.uid == uid && (
         admin() ||
         (request.resource.data.status == 'pending'
           && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'joined', 'warnings', 'badges', 'status', 'notified'])
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
           && request.resource.data.badges.size() == 0 && request.resource.data.warnings.size() == 0)
       );
-      // Un membre ne peut changer que son prénom ; tout le reste (validation, badges, mises en garde, blocage) est réservé à l'admin
-      allow update: if admin() || (connecte() && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));
-      allow delete: if admin();
+      allow update, delete: if admin();
     }
 
     match /posts/{id} {
       allow read: if valide();
       allow create: if valide() && request.resource.data.uid == request.auth.uid
-                    && request.resource.data.type in ['objectif', 'jour', 'semaine', 'message'];
-      allow update, delete: if admin() || (valide() && resource.data.uid == request.auth.uid);
+        && request.resource.data.type in ['objectif', 'jour', 'semaine', 'message']
+        && request.resource.data.ts is int
+        && request.resource.data.ts <= request.time.toMillis() + 600000
+        && (!('text' in request.resource.data) || request.resource.data.text.size() <= 1000)
+        && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000);
+      allow update: if admin();
+      allow delete: if admin() || (valide() && resource.data.uid == request.auth.uid);
     }
 
     match /tokens/{token} {
