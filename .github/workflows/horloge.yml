@@ -1,0 +1,28 @@
+# Lancé toutes les 5 minutes par cron-job.org (plus fiable que l'horloge de GitHub).
+# Prévient l'admin des demandes, envoie les bienvenues, les blocages et les rappels à l'heure.
+name: Horloge
+on:
+  workflow_dispatch:
+concurrency:
+  group: horloge
+  cancel-in-progress: false
+jobs:
+  tic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: rappels
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: rappels/package.json
+      - run: npm install --no-audit --no-fund
+      - run: node discipline.mjs
+      - run: node envoyer.mjs auto

@@ -42,3 +42,4 @@ jobs:
       - run: node envoyer.mjs ${{ steps.choix.outputs.type }}
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}

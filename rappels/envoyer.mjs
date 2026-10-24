@@ -8,12 +8,28 @@ const MESSAGES = {
   jour:     { title: "Bilan du jour", body: "0 scroll aujourd'hui ? Fais ton bilan de la journée.", url: "./?ouvrir=jour" }
 };
 
-const type = process.argv[2];
-const msg = MESSAGES[type];
-if (!msg) { console.error("Type inconnu :", type); process.exit(1); }
-
 admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
 const db = admin.firestore();
+
+// "auto" : choisit le rappel dû selon l'heure locale (UTC+1) ; chaque rappel part une seule fois par jour
+const loc = new Date(Date.now() + 3600e3);
+const jourCle = loc.toISOString().slice(0, 10);
+const minutes = loc.getUTCHours() * 60 + loc.getUTCMinutes(), jSem = loc.getUTCDay();
+let type = process.argv[2];
+if (type === "auto") {
+  const creneaux = [["jour", jSem >= 1 && jSem <= 6, 23 * 60 + 30], ["semaine", jSem === 0, 8 * 60], ["objectif", jSem === 0, 15 * 60]];
+  const du = creneaux.find(([, ok, m]) => ok && minutes >= m && minutes < m + 90);
+  if (!du) { console.log("Aucun rappel à cette heure"); process.exit(0); }
+  type = du[0];
+}
+const msg = MESSAGES[type];
+if (!msg) { console.error("Type inconnu :", type); process.exit(1); }
+const meta = db.collection("meta").doc("rappels");
+if (process.env.FORCE !== "1") {
+  const deja = (await meta.get()).data() || {};
+  if (deja[type] === jourCle) { console.log("Rappel déjà envoyé aujourd'hui :", type); process.exit(0); }
+}
+await meta.set({ [type]: jourCle }, { merge: true });
 
 // Seuls les membres validés sont prévenus, et pas ceux qui ont déjà fait ce qui est demandé
 const membres = (await db.collection("members").get()).docs.map(d => d.data());
