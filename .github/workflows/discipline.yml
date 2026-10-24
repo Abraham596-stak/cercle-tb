@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      test:
+        description: "Envoyer un e-mail de test à l'administrateur"
+        default: "0"
 jobs:
   verifier:
     runs-on: ubuntu-latest
@@ -20,3 +24,4 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          TEST: ${{ inputs.test }}

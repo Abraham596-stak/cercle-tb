@@ -116,6 +116,14 @@ function bienvenue(prenom) {
     `\n\nApplication : ${APP_URL}\n\nTiens bon !\n${ADMIN_NAME}`;
   return { html, text };
 }
+if (process.env.TEST === "1") {
+  try {
+    const t = nodemailer.createTransport({ service: "gmail", auth: { user: ADMIN_EMAIL, pass: (process.env.GMAIL_APP_PASSWORD || "").replace(/\s/g, "") } });
+    const { html, text } = bienvenue("Dénahouéa");
+    await t.sendMail({ from: `${ADMIN_NAME} · Le Cercle TB <${ADMIN_EMAIL}>`, to: ADMIN_EMAIL, subject: "[Test] Bienvenue dans le Cercle TB", html, text });
+    console.log("::notice::TEST OK : e-mail envoyé");
+  } catch (e) { console.log("::error::TEST ECHEC : " + e.message); }
+}
 const aAccueillir = members.filter(m => m.status === "approved" && m.role !== "admin" && !m.welcomed && m.email);
 if (aAccueillir.length && process.env.GMAIL_APP_PASSWORD) {
   const t = nodemailer.createTransport({ service: "gmail", auth: { user: ADMIN_EMAIL, pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, "") } });
