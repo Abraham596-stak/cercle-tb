@@ -1,13 +1,13 @@
 # Rappels automatiques du Cercle TB (heures en UTC ; heure locale = UTC + 1)
 #   Dimanche 8h00   → bilan de la semaine
-#   Dimanche 15h00  → objectif de la semaine
+#   Dimanche 20h30  → programme et objectif de la semaine
 #   Lundi→samedi 23h30 → bilan du jour
 name: Rappels
 
 on:
   schedule:
     - cron: "0 7 * * 0"
-    - cron: "0 14 * * 0"
+    - cron: "30 19 * * 0"
     - cron: "30 22 * * 1-6"
   workflow_dispatch:
     inputs:
@@ -35,7 +35,7 @@ jobs:
         run: |
           case "${{ github.event.schedule }}" in
             "0 7 * * 0")     echo "type=semaine" >> "$GITHUB_OUTPUT" ;;
-            "0 14 * * 0")    echo "type=objectif" >> "$GITHUB_OUTPUT" ;;
+            "30 19 * * 0")    echo "type=objectif" >> "$GITHUB_OUTPUT" ;;
             "30 22 * * 1-6") echo "type=jour" >> "$GITHUB_OUTPUT" ;;
             *)               echo "type=${{ inputs.type }}" >> "$GITHUB_OUTPUT" ;;
           esac

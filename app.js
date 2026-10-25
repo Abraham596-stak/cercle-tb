@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "14";
+const APP_VERSION = "15";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -60,7 +60,7 @@ addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = 
 const JOURS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
 const MOIS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 function mondayOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x; }
-function weekStart(d = new Date()) { const m = mondayOf(d); if (d.getDay() === 0 && d.getHours() >= 15) m.setDate(m.getDate() + 7); return m; }
+function weekStart(d = new Date()) { const m = mondayOf(d); if (d.getDay() === 0 && d.getHours() >= 12) m.setDate(m.getDate() + 7); return m; }
 const dayKey = d => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; };
 const weekKey = d => dayKey(weekStart(d));
 const fmtDate = d => `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS[d.getMonth()]}`;
@@ -70,7 +70,7 @@ function nextReminder(now = new Date()) {
   for (let i = 0; i < 8; i++) {
     const d = new Date(now); d.setDate(d.getDate() + i);
     const at = (h, m, what) => { const t = new Date(d); t.setHours(h, m, 0, 0); if (t > now) list.push({ t, what }); };
-    if (d.getDay() === 0) { at(8, 0, "Bilan de la semaine : objectif atteint ?"); at(15, 0, "Envoie ton objectif de la semaine"); }
+    if (d.getDay() === 0) { at(8, 0, "Bilan de la semaine : objectif atteint ?"); at(20, 30, "Envoie ton programme et ton objectif de la semaine"); }
     else at(23, 30, "Bilan de ta journée");
   }
   return list.sort((a, b) => a.t - b.t)[0];
@@ -323,8 +323,8 @@ function notifBanner() {
 function todo(s) {
   const now = new Date(), sun = now.getDay() === 0;
   let t = null;
-  if (sun && now.getHours() >= 15 && !s.obj) t = ["objectif", "Ton objectif de la semaine n'est pas encore envoyé", "Envoyer mon objectif"];
-  else if (sun && now.getHours() < 15 && !posts.some(p => p.uid === me.uid && p.type === "semaine" && p.day === dayKey(now))) t = ["semaine", "Fais le bilan de ta semaine", "Faire mon bilan de semaine"];
+  if (sun && (now.getHours() * 60 + now.getMinutes()) >= 20 * 60 + 30 && !s.obj) t = ["objectif", "Ton objectif de la semaine n'est pas encore envoyé", "Envoyer mon objectif"];
+  else if (sun && (now.getHours() * 60 + now.getMinutes()) < 20 * 60 + 30 && !posts.some(p => p.uid === me.uid && p.type === "semaine" && p.day === dayKey(now))) t = ["semaine", "Fais le bilan de ta semaine", "Faire mon bilan de semaine"];
   else if (!sun && !s.today && now.getHours() >= 18) t = ["jour", "Ton bilan du jour t'attend", "Faire mon bilan du jour"];
   else if (!s.obj && !sun) t = ["objectif", "Tu n'as pas encore d'objectif cette semaine", "Fixer mon objectif"];
   if (!t) return s.today ? `<div class="card done">Bilan du jour envoyé. Bravo, continue comme ça !</div>` : "";

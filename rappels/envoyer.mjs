@@ -3,7 +3,7 @@
 import admin from "firebase-admin";
 
 const MESSAGES = {
-  objectif: { title: "Objectif de la semaine", body: "C'est l'heure ! Écris ton objectif sur un papier et envoie la photo au cercle.", url: "./?ouvrir=objectif" },
+  objectif: { title: "Programme et objectif de la semaine", body: "C'est l'heure ! Écris ton programme et ton objectif de la semaine sur un papier, puis envoie la photo au cercle.", url: "./?ouvrir=objectif" },
   semaine:  { title: "Bilan de la semaine", body: "As-tu atteint ton objectif de la semaine ? Dis-le au cercle.", url: "./?ouvrir=semaine" },
   jour:     { title: "Bilan du jour", body: "0 scroll aujourd'hui ? Fais ton bilan de la journée.", url: "./?ouvrir=jour" }
 };
@@ -17,7 +17,7 @@ const jourCle = loc.toISOString().slice(0, 10);
 const minutes = loc.getUTCHours() * 60 + loc.getUTCMinutes(), jSem = loc.getUTCDay();
 let type = process.argv[2];
 if (type === "auto") {
-  const creneaux = [["jour", jSem >= 1 && jSem <= 6, 23 * 60 + 30], ["semaine", jSem === 0, 8 * 60], ["objectif", jSem === 0, 15 * 60]];
+  const creneaux = [["jour", jSem >= 1 && jSem <= 6, 23 * 60 + 30], ["semaine", jSem === 0, 8 * 60], ["objectif", jSem === 0, 20 * 60 + 30]];
   const du = creneaux.find(([, ok, m]) => ok && minutes >= m && minutes < m + 90);
   if (!du) { console.log("Aucun rappel à cette heure"); process.exit(0); }
   type = du[0];
