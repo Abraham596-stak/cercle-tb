@@ -186,3 +186,43 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .cta { padding: 12px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: #E8F5FE; }
 .cta span { flex: 1; min-width: 180px; font-weight: 600; }
 .done { padding: 12px 16px; color: var(--ok); font-weight: 600; background: var(--ok-bg); }
+
+/* Médias */
+.post-media { display: grid; gap: 2px; margin-top: 12px; }
+.post-media img { width: 100%; height: 100%; object-fit: cover; display: block; max-height: 520px; }
+.post-media.n1 { grid-template-columns: 1fr; } .post-media.n1 img { object-fit: contain; background: #000; max-height: 560px; }
+.post-media.n2 { grid-template-columns: 1fr 1fr; } .post-media.n2 img { aspect-ratio: 1; }
+.post-media.n3 { grid-template-columns: 1fr 1fr; } .post-media.n3 img:first-child { grid-column: 1 / -1; aspect-ratio: 16/9; } .post-media.n3 img { aspect-ratio: 1; }
+.post-media.n4 { grid-template-columns: 1fr 1fr; } .post-media.n4 img { aspect-ratio: 1; }
+.post-video { width: 100%; max-height: 560px; background: #000; display: block; margin-top: 12px; }
+.post-video-load { position: relative; width: 100%; aspect-ratio: 16/9; margin-top: 12px; border: 0; background: #1C1E21 center/cover no-repeat; color: #fff; display: grid; place-items: center; }
+.post-video-load .play { width: 64px; height: 64px; border-radius: 50%; background: rgba(0,0,0,.6); display: grid; place-items: center; font-size: 26px; padding-left: 4px; }
+.post-video-load .vsize { position: absolute; left: 10px; bottom: 10px; font-size: 12px; background: rgba(0,0,0,.6); padding: 3px 8px; border-radius: 4px; }
+.media-prev { display: flex; gap: 8px; flex-wrap: wrap; }
+.mp { position: relative; width: 84px; height: 84px; border-radius: 8px; overflow: hidden; background: #000; }
+.mp img, .mp video { width: 100%; height: 100%; object-fit: cover; }
+.mp button { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0,0,0,.7); color: #fff; line-height: 1; }
+/* J'aime et commentaires */
+.social { margin: 10px 16px 0; }
+.like-line { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); padding-bottom: 8px; }
+.heart-dot { width: 20px; height: 20px; border-radius: 50%; background: #F02849; color: #fff; display: grid; place-items: center; }
+.heart-dot svg { width: 12px; height: 12px; }
+.post-actions { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); padding-block: 4px; }
+.act { display: flex; align-items: center; justify-content: center; gap: 6px; border: 0; background: none; color: var(--muted); font-weight: 600; font-size: 14px; padding: 8px; border-radius: 6px; }
+.act svg { color: var(--muted); }
+.act:hover { background: var(--hover); }
+.act.on, .act.on svg { color: #F02849; }
+.post > .social:last-child { margin-bottom: 4px; }
+.comments { border-top: 1px solid var(--line); padding: 10px 0 8px; display: flex; flex-direction: column; gap: 8px; }
+.comment { display: flex; gap: 8px; align-items: flex-start; }
+.av.sm { width: 32px; height: 32px; font-size: 13px; }
+.bubble { background: var(--bg); border-radius: 16px; padding: 8px 12px; min-width: 0; max-width: calc(100% - 40px); }
+.bubble strong { font-size: 13px; }
+.bubble p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.bubble small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+.link-sm { background: none; border: 0; padding: 0; color: var(--muted); font-size: 11px; font-weight: 600; text-decoration: underline; }
+.c-form { display: flex; gap: 8px; align-items: center; }
+.c-input { flex: 1; min-width: 0; border: 0; background: var(--bg); border-radius: 18px; padding: 9px 14px; font: inherit; font-size: 15px; color: var(--ink); }
+.c-input:focus { outline: 2px solid var(--navy); }
+.c-send { border: 0; background: none; color: var(--navy); font-size: 20px; width: 36px; height: 36px; }
+.act:not(.on) svg path { fill: none; stroke: currentColor; stroke-width: 2; }

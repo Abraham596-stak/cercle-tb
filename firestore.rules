@@ -31,9 +31,35 @@ service cloud.firestore {
         && request.resource.data.ts is int
         && request.resource.data.ts <= request.time.toMillis() + 600000
         && (!('text' in request.resource.data) || request.resource.data.text.size() <= 1000)
-        && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000);
-      allow update: if admin();
+        && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000)
+        && (!('photos' in request.resource.data) || admin())
+        && (!('video' in request.resource.data) || admin());
+      // J'aime : chacun ne peut ajouter ou retirer que son propre j'aime
+      allow update: if admin() || (valide()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+        && request.resource.data.likes.toSet().difference(resource.data.get('likes', []).toSet()).hasOnly([request.auth.uid])
+        && resource.data.get('likes', []).toSet().difference(request.resource.data.likes.toSet()).hasOnly([request.auth.uid]));
       allow delete: if admin() || (valide() && resource.data.uid == request.auth.uid);
+    }
+
+    match /comments/{id} {
+      allow read: if valide();
+      allow create: if valide() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['postId', 'uid', 'name', 'text', 'ts'])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
+        && request.resource.data.ts is int && request.resource.data.ts <= request.time.toMillis() + 600000;
+      allow delete: if admin() || (valide() && resource.data.uid == request.auth.uid);
+    }
+
+    // Vidéos découpées en morceaux (publiées par l'administrateur)
+    match /media/{id} {
+      allow read: if valide();
+      allow write: if admin();
+      match /parts/{n} {
+        allow read: if valide();
+        allow write: if admin();
+      }
     }
 
     match /tokens/{token} {

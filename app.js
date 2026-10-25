@@ -2,7 +2,7 @@ import { firebaseConfig, vapidKey } from "./firebase-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   updateProfile, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc, deleteDoc,
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc, deleteDoc, getDocs, Bytes,
   onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
@@ -23,6 +23,7 @@ const BADGES = ["Discipliné(e)", "Zéro scroll", "Objectifs tenus", "Exemple du
 const INACTIF_JOURS = 14;
 
 let me = null, myDoc = undefined, posts = [], members = [], view = "fil", filter = "tout", online = navigator.onLine;
+let comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
 let unsub = [], dataUnsub = [], swReg = null, installEvt = null, autoChecked = false;
 const isAdmin = () => !!me && me.email.toLowerCase() === ADMIN_EMAIL;
 
@@ -39,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "13";
+const APP_VERSION = "14";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -153,7 +154,7 @@ function loginView(mode = "in") {
 
 /* ---------- données ---------- */
 let pendingName = null;
-function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; posts = []; members = []; }
+function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; posts = []; members = []; comments = []; }
 function startData() {
   if (dataUnsub.length) return;
   dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(150)), { includeMetadataChanges: true }, snap => {
@@ -161,6 +162,10 @@ function startData() {
     render();
   }, () => {}));
   dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); }, () => {}));
+  dataUnsub.push(onSnapshot(query(collection(db, "comments"), orderBy("ts", "asc"), limit(1000)), { includeMetadataChanges: true }, snap => {
+    comments = snap.docs.map(d => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites }));
+    render();
+  }, () => {}));
 }
 function start(user) {
   if (me && me.uid === user.uid) return;
@@ -257,8 +262,49 @@ function postHTML(p) {
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
     ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
+    ${mediaHTML(p)}
     ${p._pending ? `<div class="pending">En attente de réseau · envoi automatique</div>` : ""}
+    ${p.id && !p._pending ? socialHTML(p) : ""}
   </article>`;
+}
+const HEART = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.5h2c.7-1.3 2.2-2.5 4.3-2.5 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z" fill="currentColor"/></svg>`;
+const BUBBLE = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>`;
+function mediaHTML(p) {
+  const imgs = (p.photos || []).map(src => `<img src="${src}" alt="" loading="lazy">`).join("");
+  const grid = imgs ? `<div class="post-media n${Math.min(p.photos.length, 4)}">${imgs}</div>` : "";
+  let vid = "";
+  if (p.video) {
+    const url = mediaUrls[p.video.id];
+    vid = url
+      ? `<video class="post-video" src="${url}" controls playsinline preload="metadata" ${p.video.poster ? `poster="${p.video.poster}"` : ""}></video>`
+      : `<button class="post-video-load" data-vid="${esc(p.video.id)}" data-parts="${p.video.parts}" data-mime="${esc(p.video.mime)}" style="${p.video.poster ? `background-image:url('${p.video.poster}')` : ""}"><span class="play">▶</span><span class="vsize">Vidéo · ${(p.video.size / 1e6).toFixed(1)} Mo</span></button>`;
+  }
+  return grid + vid;
+}
+function likeLine(likes) {
+  if (!likes.length) return "";
+  const names = likes.map(u => u === me.uid ? "Toi" : (memberOf(u).name || "Un membre"));
+  const txt = names.length <= 2 ? names.join(" et ") : `${names[0]}, ${names[1]} et ${names.length - 2} autre${names.length > 3 ? "s" : ""}`;
+  return `<div class="like-line"><span class="heart-dot">${HEART}</span>${esc(txt)}</div>`;
+}
+function socialHTML(p) {
+  const likes = p.likes || [], liked = likes.includes(me.uid);
+  const cs = comments.filter(c => c.postId === p.id), open = openCom.has(p.id);
+  return `<div class="social">
+    ${likeLine(likes)}
+    <div class="post-actions">
+      <button class="act ${liked ? "on" : ""}" data-like="${esc(p.id)}" aria-pressed="${liked}">${HEART}<span>J'aime</span></button>
+      <button class="act" data-com="${esc(p.id)}">${BUBBLE}<span>Commenter${cs.length ? ` · ${cs.length}` : ""}</span></button>
+    </div>
+    ${open ? `<div class="comments">
+      ${cs.map(c => `<div class="comment">${avatar(memberOf(c.uid).name || c.name, "sm")}
+        <div class="bubble"><strong>${esc(memberOf(c.uid).name || c.name)}</strong> ${nameTags(c.uid)}<p>${esc(c.text)}</p>
+        <small>${fmtDate(new Date(c.ts))} à ${fmtTime(new Date(c.ts))}${c._pending ? " · envoi…" : ""}${(c.uid === me.uid || isAdmin()) && !c._pending ? ` · <button class="link-sm" data-cdel="${esc(c.id)}">Supprimer</button>` : ""}</small></div></div>`).join("")}
+      <form class="c-form" data-cform="${esc(p.id)}">${avatar(me.name, "sm")}
+        <input class="c-input" id="ci-${esc(p.id)}" maxlength="500" placeholder="Écris un commentaire…" autocomplete="off">
+        <button class="c-send" aria-label="Envoyer">➤</button></form>
+    </div>` : ""}
+  </div>`;
 }
 function header() {
   return `<header class="topbar"><div class="topbar-in">
@@ -367,7 +413,9 @@ function gateView() {
 }
 function render() {
   if (!me) return;
-  if ($("#layer .sheet")) return; // ne pas effacer une saisie en cours
+  if ($("#layer .sheet") || mediaPlaying) return; // ne pas effacer une saisie ni couper une vidéo
+  const drafts = {}; document.querySelectorAll(".c-input").forEach(i => { if (i.value) drafts[i.id] = i.value; });
+  const focusId = document.activeElement && document.activeElement.classList.contains("c-input") ? document.activeElement.id : null;
   if (!myDoc || myDoc.status !== "approved") {
     $("#app").innerHTML = gateView();
     if ($("#out")) $("#out").onclick = () => signOut(auth);
@@ -398,6 +446,9 @@ function render() {
   }, $("#menu").parentElement, view);
   if ($("#notif")) $("#notif").onclick = enableNotifs;
   document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openSheet(b.dataset.open));
+  Object.entries(drafts).forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
+  if (focusId && document.getElementById(focusId)) document.getElementById(focusId).focus();
+  bindSocial();
   if ($("#go-dem")) $("#go-dem").onclick = () => { view = "demandes"; render(); scrollTo(0, 0); };
   if ($("#compose")) $("#compose").onclick = () => openMenu([
     ["objectif", "Objectif de la semaine", "Photo du papier, floutée ou non"],
@@ -463,6 +514,100 @@ function openWarn(m) {
   };
 }
 
+/* ---------- j'aime, commentaires, vidéos ---------- */
+function bindSocial() {
+  document.querySelectorAll("[data-like]").forEach(b => b.onclick = () => {
+    const id = b.dataset.like, p = posts.find(x => x.id === id); if (!p) return;
+    const liked = (p.likes || []).includes(me.uid);
+    p.likes = liked ? (p.likes || []).filter(u => u !== me.uid) : [...(p.likes || []), me.uid];
+    render();
+    updateDoc(doc(db, "posts", id), { likes: liked ? arrayRemove(me.uid) : arrayUnion(me.uid) }).catch(() => toast("Action refusée. Vérifie ta connexion."));
+  });
+  document.querySelectorAll("[data-com]").forEach(b => b.onclick = () => {
+    const id = b.dataset.com;
+    if (openCom.has(id)) openCom.delete(id); else openCom.add(id);
+    render();
+    const i = document.getElementById("ci-" + id); if (i && openCom.has(id)) i.focus();
+  });
+  document.querySelectorAll("[data-cform]").forEach(f => f.onsubmit = e => {
+    e.preventDefault();
+    const id = f.dataset.cform, input = f.querySelector(".c-input"), text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    const ref = doc(collection(db, "comments"));
+    setDoc(ref, { postId: id, uid: me.uid, name: me.name, text, ts: Date.now() }).catch(() => toast("Commentaire refusé. Vérifie ta connexion."));
+  });
+  document.querySelectorAll("[data-cdel]").forEach(b => b.onclick = () => {
+    deleteDoc(doc(db, "comments", b.dataset.cdel)).then(() => toast("Commentaire supprimé")).catch(() => toast("Suppression refusée"));
+  });
+  document.querySelectorAll("[data-vid]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.vid;
+    if (!navigator.onLine) { toast("La vidéo a besoin du réseau la première fois."); return; }
+    b.disabled = true; b.querySelector(".vsize").textContent = "Chargement…";
+    try {
+      const snap = await getDocs(collection(db, "media", id, "parts"));
+      const parts = snap.docs.map(d => d.data()).sort((a, c) => a.n - c.n).map(x => x.data.toUint8Array());
+      mediaUrls[id] = URL.createObjectURL(new Blob(parts, { type: b.dataset.mime || "video/mp4" }));
+      render();
+      const v = document.querySelector(`video[src="${mediaUrls[id]}"]`); if (v) v.play().catch(() => {});
+    } catch (e) { b.disabled = false; b.querySelector(".vsize").textContent = "Échec, touche pour réessayer"; }
+  });
+  document.querySelectorAll("video.post-video").forEach(v => {
+    v.onplay = () => { mediaPlaying = true; };
+    v.onpause = v.onended = () => { mediaPlaying = false; };
+  });
+}
+const CHUNK = 900000, MAX_RAW = 7e6;
+function readURL(f) { return new Promise((r, j) => { const x = new FileReader(); x.onload = () => r(x.result); x.onerror = j; x.readAsDataURL(f); }); }
+async function shrinkImage(f) {
+  if (f.type === "image/gif") {
+    if (f.size > 700000) throw new Error("Ce GIF est trop lourd (700 Ko maximum).");
+    return readURL(f);
+  }
+  const url = await readURL(f);
+  const img = await new Promise((r, j) => { const i = new Image(); i.onload = () => r(i); i.onerror = j; i.src = url; });
+  const W = Math.min(1080, img.width), H = Math.round(img.height * W / img.width);
+  const c = document.createElement("canvas"); c.width = W; c.height = H; c.getContext("2d").drawImage(img, 0, 0, W, H);
+  return c.toDataURL("image/jpeg", .72);
+}
+async function videoPoster(url) {
+  const v = document.createElement("video"); v.muted = true; v.playsInline = true; v.src = url;
+  await new Promise(r => { v.onloadeddata = r; v.onerror = r; });
+  v.currentTime = Math.min(0.5, (v.duration || 1) / 2);
+  await new Promise(r => { v.onseeked = r; setTimeout(r, 1500); });
+  const W = 480, H = Math.round((v.videoHeight || 270) * W / (v.videoWidth || 480));
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  try { c.getContext("2d").drawImage(v, 0, 0, W, H); return c.toDataURL("image/jpeg", .6); } catch (e) { return ""; }
+}
+async function compressVideo(file, onProgress) {
+  const v = document.createElement("video"); v.playsInline = true; v.src = URL.createObjectURL(file);
+  await new Promise((r, j) => { v.onloadedmetadata = r; v.onerror = () => j(new Error("Vidéo illisible.")); });
+  if (v.duration > 120) throw new Error("Vidéo trop longue : 2 minutes maximum.");
+  const cap = v.captureStream || v.mozCaptureStream;
+  if (!cap || !window.MediaRecorder) throw new Error("Vidéo trop lourde (7 Mo maximum sur ce téléphone).");
+  const stream = cap.call(v);
+  const mime = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"].find(m => MediaRecorder.isTypeSupported(m));
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 650000, audioBitsPerSecond: 64000 });
+  const out = []; rec.ondataavailable = e => { if (e.data.size) out.push(e.data); };
+  const done = new Promise(r => { rec.onstop = r; });
+  v.ontimeupdate = () => onProgress(Math.min(1, v.currentTime / v.duration));
+  v.onended = () => rec.stop();
+  rec.start(1000); await v.play(); await done;
+  const blob = new Blob(out, { type: mime.split(";")[0] });
+  if (blob.size > 12e6) throw new Error("Vidéo encore trop lourde après réduction. Coupe-la en plus court.");
+  return blob;
+}
+async function uploadVideo(blob) {
+  const ref = doc(collection(db, "media")), bytes = new Uint8Array(await blob.arrayBuffer());
+  const parts = Math.ceil(bytes.length / CHUNK);
+  await setDoc(ref, { uid: me.uid, parts, size: bytes.length, mime: blob.type, ts: Date.now() });
+  for (let i = 0; i < parts; i++) {
+    await setDoc(doc(db, "media", ref.id, "parts", String(i)), { n: i, data: Bytes.fromUint8Array(bytes.slice(i * CHUNK, (i + 1) * CHUNK)) });
+  }
+  mediaUrls[ref.id] = URL.createObjectURL(blob);
+  return { id: ref.id, parts, size: bytes.length, mime: blob.type };
+}
+
 /* ---------- rappels ---------- */
 async function enableNotifs() {
   try {
@@ -509,7 +654,9 @@ function openSheet(type) {
       <textarea id="txt" maxlength="600" placeholder="Qu'as-tu fait pour ton objectif aujourd'hui ?"></textarea>`,
     semaine: `${yesNo("As-tu atteint ton objectif de la semaine ?", "Oui, atteint", "Non, pas atteint")}
       <textarea id="txt" maxlength="600" placeholder="Ce qui a marché, ce qui a bloqué"></textarea>`,
-    message: `<textarea id="txt" maxlength="600" placeholder="Ton message au groupe"></textarea>`
+    message: `<textarea id="txt" maxlength="1000" placeholder="Ton message au groupe"></textarea>
+      ${isAdmin() ? `<label class="filebtn"><input id="mfile" type="file" accept="image/*,video/*" multiple><span>Ajouter des photos, une vidéo ou un GIF</span></label>
+      <div class="media-prev" id="mprev"></div><div class="hint" id="mstat"></div>` : ""}`
   }[type];
   wrap.innerHTML = `<div class="panel" role="dialog" aria-label="${TYPES[type]}">
     <div class="sheet-head"><h2>${TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
@@ -520,7 +667,38 @@ function openSheet(type) {
   $("#x").onclick = close;
   let choice = null, img = null;
   const send = $("#send");
-  const check = () => { send.disabled = (type === "objectif" || type === "message") ? !(img || $("#txt").value.trim()) : choice === null; };
+  let mPhotos = [], mVideo = null, busy = false;
+  const check = () => { send.disabled = busy || ((type === "objectif" || type === "message") ? !(img || mPhotos.length || mVideo || $("#txt").value.trim()) : choice === null); };
+  if ($("#mfile")) $("#mfile").onchange = async e => {
+    const files = [...e.target.files]; e.target.value = "";
+    const stat = $("#mstat"); busy = true; check();
+    try {
+      for (const f of files) {
+        if (f.type.startsWith("video/")) {
+          if (mVideo) throw new Error("Une seule vidéo par publication.");
+          let blob = f;
+          if (f.size > MAX_RAW) {
+            stat.textContent = "Réduction de la vidéo… (elle se lit pendant la préparation)";
+            blob = await compressVideo(f, x => { stat.textContent = `Réduction de la vidéo… ${Math.round(x * 100)} %`; });
+          }
+          const url = URL.createObjectURL(blob);
+          mVideo = { blob, poster: await videoPoster(url), url };
+        } else if (f.type.startsWith("image/")) {
+          if (mPhotos.length >= 4) throw new Error("4 photos maximum par publication.");
+          mPhotos.push(await shrinkImage(f));
+        }
+      }
+      const total = mPhotos.reduce((a, x) => a + x.length, 0);
+      if (total > 850000) { mPhotos.pop(); throw new Error("Trop lourd : retire une photo ou un GIF."); }
+      stat.textContent = "";
+    } catch (err) { stat.textContent = err.message || "Fichier non pris en charge."; }
+    busy = false;
+    $("#mprev").innerHTML = mPhotos.map((src, i) => `<div class="mp"><img src="${src}" alt=""><button type="button" data-rm="${i}" aria-label="Retirer">×</button></div>`).join("") +
+      (mVideo ? `<div class="mp vid"><video src="${mVideo.url}" muted playsinline></video><button type="button" data-rmv aria-label="Retirer">×</button></div>` : "");
+    $("#mprev").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { mPhotos.splice(+b.dataset.rm, 1); $("#mfile").dispatchEvent(new Event("change")); });
+    $("#mprev").querySelectorAll("[data-rmv]").forEach(b => b.onclick = () => { mVideo = null; $("#mfile").dispatchEvent(new Event("change")); });
+    check();
+  };
   wrap.querySelectorAll(".choice").forEach(b => b.onclick = () => { choice = b.dataset.v === "1"; wrap.querySelectorAll(".choice").forEach(o => o.setAttribute("aria-pressed", o === b)); check(); });
   $("#txt").oninput = check;
   if (type === "objectif") {
@@ -543,9 +721,16 @@ function openSheet(type) {
       r.readAsDataURL(f);
     };
   }
-  send.onclick = () => {
+  send.onclick = async () => {
     const now = new Date();
-    const p = { uid: me.uid, name: me.name, type, text: $("#txt").value.trim(), ts: now.getTime(), week: weekKey(now), day: dayKey(now) };
+    const p = { uid: me.uid, name: me.name, type, text: $("#txt").value.trim(), ts: now.getTime(), week: weekKey(now), day: dayKey(now), likes: [] };
+    if (mPhotos.length) p.photos = mPhotos;
+    if (mVideo) {
+      if (!navigator.onLine) { toast("Il faut du réseau pour envoyer une vidéo."); return; }
+      busy = true; check(); $("#mstat").textContent = "Envoi de la vidéo…";
+      try { const v = await uploadVideo(mVideo.blob); p.video = { ...v, poster: mVideo.poster }; }
+      catch (e) { busy = false; check(); $("#mstat").textContent = "Échec de l'envoi de la vidéo. Réessaie."; return; }
+    }
     if (type === "objectif" && img) p.photo = $("#cv").toDataURL("image/jpeg", .55);
     if (type === "jour") p.zero = choice;
     if (type === "semaine") p.atteint = choice;
