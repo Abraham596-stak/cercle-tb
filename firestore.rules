@@ -71,5 +71,16 @@ service cloud.firestore {
       allow create, update: if connecte() && request.resource.data.uid == request.auth.uid;
       allow read, delete: if false;
     }
+    // Mon Argent : chaque utilisateur ne voit que ses propres données
+    match /users/{uid} {
+      allow read, write: if connecte() && request.auth.uid == uid;
+      match /{document=**} {
+        allow read, write: if connecte() && request.auth.uid == uid;
+      }
+    }
+    match /argentTokens/{token} {
+      allow create, update: if connecte() && request.resource.data.uid == request.auth.uid;
+      allow read, delete: if false;
+    }
   }
 }
