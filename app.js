@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "16";
+const APP_VERSION = "17";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -256,6 +256,7 @@ function postHTML(p) {
   if (p.type === "jour") tag = `<span class="tag ${p.zero ? "ok" : "ko"}">${p.zero ? "0 scroll" : "A scrollé"}</span>`;
   if (p.type === "message") tag = "";
   if (p.type === "matin") tag = "";
+  if (p.type === "jour" && p.matinOk !== undefined) tag += ` <span class="tag ${p.matinOk ? "ok" : "ko"}">${p.matinOk ? "Objectifs du jour tenus" : "Objectifs du jour pas tous tenus"}</span>`;
   if (p.type === "jour" && p.itemsTotal) tag += ` <span class="tag ${p.doneItems.length === p.itemsTotal ? "ok" : ""}">${p.doneItems.length}/${p.itemsTotal} objectifs du jour</span>`;
   const d = new Date(p.ts);
   const canDel = p.id && !p._pending && (p.uid === me.uid || isAdmin());
@@ -656,18 +657,25 @@ function openSheet(type) {
   $("#layer").innerHTML = "";
   const wrap = document.createElement("div"); wrap.className = "sheet";
   const yesNo = (q, a, b) => `<span class="label">${q}</span><div class="row"><button class="choice" data-v="1" aria-pressed="false">${a}</button><button class="choice" data-v="0" aria-pressed="false">${b}</button></div>`;
-  const body = {
-    objectif: `<p class="hint">Écris ton objectif sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
+  const modeChoice = `<span class="label">Comment veux-tu l'envoyer ?</span>
+    <div class="modes"><button type="button" class="mode" data-mode="ecrire" aria-pressed="true"><b>L'écrire</b><small>Taper mes objectifs directement</small></button>
+    <button type="button" class="mode" data-mode="photo" aria-pressed="false"><b>Envoyer une photo</b><small>Photo du papier, floutée ou non</small></button></div>`;
+  const photoBlock = `<div id="m-photo" hidden><p class="hint">Écris tes objectifs sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
       <label class="filebtn" id="pick"><input id="file" type="file" accept="image/*" capture="environment"><span id="picktxt">Prendre ou choisir la photo du papier</span></label>
       <div class="photo" id="ph" hidden><canvas id="cv"></canvas>
         <div class="blurctl"><span>Flou</span><input id="blur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span id="bv">6</span></div>
-        <span class="hint">0 = sans flou. La photo est réduite pour consommer très peu de données.</span></div>
-      <textarea id="txt" maxlength="400" placeholder="Résumé de ton objectif (facultatif)"></textarea>`,
-    matin: `<p class="hint">Avant de commencer ta journée, écris ce que tu vas accomplir. Ce soir, tu coches ce qui est fait dans ton bilan.</p>
-      <div class="items-in" id="items">${[0, 1, 2].map(i => `<input class="field item" maxlength="120" placeholder="Objectif ${i + 1}">`).join("")}</div>
-      <button type="button" class="link" id="addit">+ Ajouter un objectif</button>
+        <span class="hint">0 = sans flou. La photo est réduite pour consommer très peu de données.</span></div></div>`;
+  const body = {
+    objectif: `${modeChoice}${photoBlock}
+      <div id="m-ecrire"><textarea id="wtxt" maxlength="1000" placeholder="Mon programme et mon objectif de la semaine…"></textarea></div>
+      <textarea id="txt" maxlength="400" placeholder="Un mot en plus (facultatif)"></textarea>`,
+    matin: `<p class="hint">Avant de commencer ta journée, fixe ce que tu vas accomplir. Ce soir, tu fais le point dans ton bilan.</p>
+      ${modeChoice}${photoBlock}
+      <div id="m-ecrire"><div class="items-in" id="items">${[0, 1, 2].map(i => `<input class="field item" maxlength="120" placeholder="Objectif ${i + 1}">`).join("")}</div>
+      <button type="button" class="link" id="addit">+ Ajouter un objectif</button></div>
       <textarea id="txt" maxlength="400" placeholder="Un mot pour te motiver (facultatif)"></textarea>`,
-    jour: `${statsFor(me.uid).matin ? `<span class="label">Coche tes objectifs du jour accomplis</span>
+    jour: `${statsFor(me.uid).matin && statsFor(me.uid).matin.photo && !statsFor(me.uid).matin.items ? yesNo("As-tu accompli tes objectifs du jour ?", "Oui, tous", "Pas tous").replace(/class="choice"/g, 'class="choice2"') : ""}
+      ${statsFor(me.uid).matin && statsFor(me.uid).matin.items ? `<span class="label">Coche tes objectifs du jour accomplis</span>
       <div class="checks">${statsFor(me.uid).matin.items.map((it, i) => `<label class="check"><input type="checkbox" class="chk" value="${i}"><span>${esc(it)}</span></label>`).join("")}</div>` : ""}
       ${yesNo("As-tu scrollé aujourd'hui ?", "Non, 0 scroll", "Oui, j'ai scrollé")}
       <textarea id="txt" maxlength="600" placeholder="Qu'as-tu fait pour ton objectif aujourd'hui ?"></textarea>`,
@@ -688,7 +696,23 @@ function openSheet(type) {
   const send = $("#send");
   let mPhotos = [], mVideo = null, busy = false;
   const items = () => [...wrap.querySelectorAll(".item")].map(i => i.value.trim()).filter(Boolean);
-  const check = () => { send.disabled = busy || (type === "matin" ? !items().length : (type === "objectif" || type === "message") ? !(img || mPhotos.length || mVideo || $("#txt").value.trim()) : choice === null); };
+  let mode = "ecrire", matinOk = null;
+  const check = () => {
+    let ok;
+    if (type === "matin") ok = mode === "photo" ? !!img : items().length > 0;
+    else if (type === "objectif") ok = mode === "photo" ? !!img : !!$("#wtxt").value.trim();
+    else if (type === "message") ok = !!(mPhotos.length || mVideo || $("#txt").value.trim());
+    else ok = choice !== null && (!wrap.querySelector(".choice2") || matinOk !== null);
+    send.disabled = busy || !ok;
+  };
+  wrap.querySelectorAll(".mode").forEach(b => b.onclick = () => {
+    mode = b.dataset.mode;
+    wrap.querySelectorAll(".mode").forEach(o => o.setAttribute("aria-pressed", o === b));
+    $("#m-photo").hidden = mode !== "photo"; $("#m-ecrire").hidden = mode !== "ecrire";
+    check();
+  });
+  if ($("#wtxt")) $("#wtxt").oninput = check;
+  wrap.querySelectorAll(".choice2").forEach(b => b.onclick = () => { matinOk = b.dataset.v === "1"; wrap.querySelectorAll(".choice2").forEach(o => o.setAttribute("aria-pressed", o === b)); check(); });
   wrap.querySelectorAll(".item").forEach(i => i.oninput = check);
   if ($("#addit")) $("#addit").onclick = () => {
     const box = $("#items"), n = box.querySelectorAll(".item").length;
@@ -728,7 +752,7 @@ function openSheet(type) {
   };
   wrap.querySelectorAll(".choice").forEach(b => b.onclick = () => { choice = b.dataset.v === "1"; wrap.querySelectorAll(".choice").forEach(o => o.setAttribute("aria-pressed", o === b)); check(); });
   $("#txt").oninput = check;
-  if (type === "objectif") {
+  if ($("#cv")) {
     const cv = $("#cv"), ctx = cv.getContext("2d");
     const draw = () => {
       if (!img) return;
@@ -758,10 +782,12 @@ function openSheet(type) {
       try { const v = await uploadVideo(mVideo.blob); p.video = { ...v, poster: mVideo.poster }; }
       catch (e) { busy = false; check(); $("#mstat").textContent = "Échec de l'envoi de la vidéo. Réessaie."; return; }
     }
-    if (type === "objectif" && img) p.photo = $("#cv").toDataURL("image/jpeg", .55);
+    if ((type === "objectif" || type === "matin") && mode === "photo" && img) p.photo = $("#cv").toDataURL("image/jpeg", .55);
+    if (type === "objectif" && mode === "ecrire") p.text = [$("#wtxt").value.trim(), p.text].filter(Boolean).join("\n\n");
+    if (type === "jour" && matinOk !== null) p.matinOk = matinOk;
     if (type === "jour") p.zero = choice;
-    if (type === "matin") p.items = items();
-    if (type === "jour" && statsFor(me.uid).matin) {
+    if (type === "matin" && mode === "ecrire") p.items = items();
+    if (type === "jour" && statsFor(me.uid).matin && statsFor(me.uid).matin.items) {
       p.itemsTotal = statsFor(me.uid).matin.items.length;
       p.doneItems = [...wrap.querySelectorAll(".chk:checked")].map(c => +c.value);
     }
