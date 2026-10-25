@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "17";
+const APP_VERSION = "18";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -221,7 +221,7 @@ function autoDiscipline() {
     .forEach(m => setMember(m.uid, { status: "blocked", blockedReason: `Aucun bilan depuis ${INACTIF_JOURS} jours`, blockedAt: Date.now() }));
 }
 
-const TYPES = { objectif: "Objectif de la semaine", matin: "Objectifs du jour", jour: "Bilan du jour", semaine: "Bilan de la semaine", message: "Message" };
+const TYPES = { objectif: "Objectifs et programme de la semaine", matin: "Objectifs du jour", jour: "Bilan du jour", semaine: "Bilan de la semaine", message: "Message" };
 async function savePost(p) {
   const ref = doc(collection(db, "posts"));
   p.id = ref.id;
@@ -256,17 +256,24 @@ function postHTML(p) {
   if (p.type === "jour") tag = `<span class="tag ${p.zero ? "ok" : "ko"}">${p.zero ? "0 scroll" : "A scrollé"}</span>`;
   if (p.type === "message") tag = "";
   if (p.type === "matin") tag = "";
+  if (p.type === "objectif") tag = "";
   if (p.type === "jour" && p.matinOk !== undefined) tag += ` <span class="tag ${p.matinOk ? "ok" : "ko"}">${p.matinOk ? "Objectifs du jour tenus" : "Objectifs du jour pas tous tenus"}</span>`;
-  if (p.type === "jour" && p.itemsTotal) tag += ` <span class="tag ${p.doneItems.length === p.itemsTotal ? "ok" : ""}">${p.doneItems.length}/${p.itemsTotal} objectifs du jour</span>`;
+  if (p.type === "jour" && p.itemsTotal) tag += ` <span class="tag ${p.doneItems.length === p.itemsTotal ? "ok" : p.doneItems.length / p.itemsTotal < .4 ? "ko" : ""}">${p.doneItems.length}/${p.itemsTotal} promesses tenues</span>`;
   const d = new Date(p.ts);
   const canDel = p.id && !p._pending && (p.uid === me.uid || isAdmin());
   return `<article class="card post">
     <div class="post-head">${canDel ? `<button class="icon-btn dark small-btn post-more" data-p="${esc(p.id)}" aria-label="Options">⋮</button>` : ""}${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
       <div class="meta"><strong>${esc(memberOf(p.uid).name || p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
     ${p.type === "matin" ? itemsHTML(p) : ""}
+    ${p.type === "objectif" && p.objText ? `<div class="sec-t">Objectifs de la semaine</div><p class="post-text">${esc(p.objText)}</p>` : ""}
+    ${p.type === "jour" && p.tasks ? tasksHTML(p) : ""}
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
-    ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
+    ${p.type === "objectif" && p.photo && (p.prog || p.progPhoto) ? `<div class="sec-t">Objectifs de la semaine</div>` : ""}
+    ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectifs écrits sur papier" loading="lazy">` : ""}
+    ${p.type === "objectif" && (p.prog || p.progPhoto) ? `<div class="sec-t">Programme de la semaine</div>` : ""}
+    ${p.prog ? progTable(p.prog) : ""}
+    ${p.progPhoto ? `<img class="post-img" src="${p.progPhoto}" alt="Programme écrit sur papier" loading="lazy">` : ""}
     ${mediaHTML(p)}
     ${p._pending ? `<div class="pending">En attente de réseau · envoi automatique</div>` : ""}
     ${p.id && !p._pending ? socialHTML(p) : ""}
@@ -312,11 +319,12 @@ function socialHTML(p) {
   </div>`;
 }
 function itemsHTML(p) {
-  const bilan = posts.find(x => x.uid === p.uid && x.type === "jour" && x.day === p.day && x.itemsTotal);
-  return `<ul class="day-items">${(p.items || []).map((it, i) => {
-    const st = bilan ? (bilan.doneItems.includes(i) ? "ok" : "ko") : "";
-    return `<li class="${st}"><span class="box">${st === "ok" ? "✓" : st === "ko" ? "✕" : ""}</span>${esc(it)}</li>`;
-  }).join("")}</ul>${bilan ? `<div class="hint items-sum">${bilan.doneItems.length}/${bilan.itemsTotal} accomplis</div>` : ""}`;
+  const bilan = posts.find(x => x.uid === p.uid && x.type === "jour" && x.day === p.day && x.tasks);
+  const st = it => { if (!bilan) return ""; const i = bilan.tasks.findIndex(t => t.t.trim().toLowerCase() === it.trim().toLowerCase()); return i < 0 ? "" : (bilan.doneIdx || []).includes(i) ? "ok" : "ko"; };
+  return `<ul class="day-items">${(p.items || []).map(it => { const c = st(it); return `<li class="${c}"><span class="box">${c === "ok" ? "✓" : c === "ko" ? "✕" : ""}</span>${esc(it)}</li>`; }).join("")}</ul>`;
+}
+function tasksHTML(p) {
+  return `<ul class="day-items">${p.tasks.map((t, i) => { const c = (p.doneIdx || []).includes(i) ? "ok" : "ko"; return `<li class="${c}"><span class="box">${c === "ok" ? "✓" : "✕"}</span>${t.time ? `<b class="tt">${esc(t.time)}</b>` : ""}${esc(t.t)}</li>`; }).join("")}</ul>`;
 }
 function header() {
   return `<header class="topbar"><div class="topbar-in">
@@ -335,11 +343,11 @@ function notifBanner() {
 function todo(s) {
   const now = new Date(), sun = now.getDay() === 0;
   let t = null;
-  if (sun && (now.getHours() * 60 + now.getMinutes()) >= 20 * 60 + 30 && !s.obj) t = ["objectif", "Ton objectif de la semaine n'est pas encore envoyé", "Envoyer mon objectif"];
+  if (sun && (now.getHours() * 60 + now.getMinutes()) >= 20 * 60 + 30 && !s.obj) t = ["objectif", "Tes objectifs et ton programme de la semaine ne sont pas encore envoyés", "Les envoyer"];
   else if (sun && (now.getHours() * 60 + now.getMinutes()) < 20 * 60 + 30 && !posts.some(p => p.uid === me.uid && p.type === "semaine" && p.day === dayKey(now))) t = ["semaine", "Fais le bilan de ta semaine", "Faire mon bilan de semaine"];
   else if (!sun && !s.matin && !s.today && now.getHours() >= 4 && now.getHours() < 13) t = ["matin", "Fixe tes objectifs du jour avant de commencer", "Écrire mes objectifs du jour"];
   else if (!sun && !s.today && now.getHours() >= 18) t = ["jour", "Ton bilan du jour t'attend", "Faire mon bilan du jour"];
-  else if (!s.obj && !sun) t = ["objectif", "Tu n'as pas encore d'objectif cette semaine", "Fixer mon objectif"];
+  else if (!s.obj && !sun) t = ["objectif", "Tu n'as pas encore envoyé tes objectifs et ton programme de la semaine", "Les envoyer"];
   if (!t) return s.today ? `<div class="card done">Bilan du jour envoyé. Bravo, continue comme ça !</div>` : "";
   return `<div class="card cta"><span>${t[1]}</span><button class="btn btn-primary btn-sm" data-open="${t[0]}">${t[2]}</button></div>`;
 }
@@ -464,7 +472,7 @@ function render() {
   bindSocial();
   if ($("#go-dem")) $("#go-dem").onclick = () => { view = "demandes"; render(); scrollTo(0, 0); };
   if ($("#compose")) $("#compose").onclick = () => openMenu([
-    ["objectif", "Objectif de la semaine", "Photo du papier, floutée ou non"],
+    ["objectif", "Objectifs et programme de la semaine", "Obligatoires en début de semaine"],
     ["matin", "Objectifs du jour", "Ce que tu vas accomplir aujourd'hui"],
     ["jour", "Bilan du jour", "0 scroll ? Ce que tu as fait"],
     ["semaine", "Bilan de la semaine", "Objectif atteint ou pas"],
@@ -653,30 +661,81 @@ function openMenu(items, onPick, anchor, current, _, cls) {
 function toast(t) { const el = document.createElement("div"); el.className = "toast"; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2600); }
 
 /* ---------- publier ---------- */
+const JOURS_LONG = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+const dayIdx = d => (new Date(d).getDay() + 6) % 7;
+// Ce qui est prévu pour un jour : programme de la semaine + ce qui n'a pas été fait la veille + objectifs du matin
+function dayPlan(uid, date = new Date()) {
+  const dk = dayKey(date), wk = dayKey(mondayOf(date)), mine = posts.filter(p => p.uid === uid);
+  const tasks = [], seen = new Set();
+  const add = (t, src, time = "") => { const k = t.trim().toLowerCase(); if (!k || seen.has(k)) return; seen.add(k); tasks.push({ t: t.trim(), src, time }); };
+  const obj = mine.find(p => p.type === "objectif" && p.week === wk && p.prog);
+  if (obj) obj.prog.forEach(r => { const c = (r.cells || [])[dayIdx(date)]; if (c && c.trim()) add(c, "prog", r.from && r.to ? `${r.from}-${r.to}` : (r.from || "")); });
+  const lim = Date.now() - 3 * 864e5;
+  const prev = mine.filter(p => p.type === "jour" && p.day < dk && p.ts > lim && p.tasks).sort((a, b) => b.ts - a.ts)[0];
+  if (prev) prev.tasks.forEach((t, i) => { if (!(prev.doneIdx || []).includes(i)) add(t.t, "report", t.time || ""); });
+  const matin = mine.find(p => p.type === "matin" && p.day === dk && p.items);
+  if (matin) matin.items.forEach(t => add(t, "matin"));
+  return tasks;
+}
+function verdict(done, total) {
+  const r = total ? done / total : 0;
+  if (r === 1) return ["ok", "Sérieux !", "Tu as tenu toutes tes promesses aujourd'hui. Respect."];
+  if (r >= .7) return ["ok", "Sérieux", "Tu as tenu l'essentiel de tes promesses. Finis le reste demain."];
+  if (r >= .4) return ["mid", "Peut mieux faire", "Tu as fait la moitié du chemin. Demain, pas d'excuse."];
+  return ["ko", "Paresseux irresponsable", "Tu ne tiens pas tes promesses. Ce que tu n'as pas fait passe à demain : rattrape-toi."];
+}
+function showVerdict(done, total) {
+  const [cls, title, msg] = verdict(done, total);
+  const w = document.createElement("div"); w.className = "sheet";
+  w.innerHTML = `<div class="panel verdict ${cls}"><div class="v-score">${done}/${total}</div><h2>${title}</h2><p>${msg}</p>
+    ${total - done ? `<p class="hint">${total - done} tâche${total - done > 1 ? "s" : ""} reportée${total - done > 1 ? "s" : ""} aux objectifs de demain.</p>` : ""}
+    <button class="btn btn-primary" id="vok">Compris</button></div>`;
+  $("#layer").innerHTML = ""; $("#layer").appendChild(w);
+  const close = () => { $("#layer").innerHTML = ""; render(); };
+  $("#vok").onclick = close; w.addEventListener("click", e => { if (e.target === w) close(); });
+}
+function progTable(prog) {
+  const rows = (prog || []).filter(r => r.from || r.to || (r.cells || []).some(c => c && c.trim()));
+  if (!rows.length) return "";
+  return `<div class="prog-wrap"><table class="prog"><thead><tr><th>Horaire</th>${JOURS_LONG.map(j => `<th>${j.slice(0, 3)}.</th>`).join("")}</tr></thead>
+    <tbody>${rows.map(r => `<tr><th>${esc(r.from || "")}${r.to ? "–" + esc(r.to) : ""}</th>${(r.cells || []).map(c => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
 function openSheet(type) {
   $("#layer").innerHTML = "";
   const wrap = document.createElement("div"); wrap.className = "sheet";
-  const yesNo = (q, a, b) => `<span class="label">${q}</span><div class="row"><button class="choice" data-v="1" aria-pressed="false">${a}</button><button class="choice" data-v="0" aria-pressed="false">${b}</button></div>`;
-  const modeChoice = `<span class="label">Comment veux-tu l'envoyer ?</span>
-    <div class="modes"><button type="button" class="mode" data-mode="ecrire" aria-pressed="true"><b>L'écrire</b><small>Taper mes objectifs directement</small></button>
+  const yesNo = (q, a, b, cls = "choice") => `<span class="label">${q}</span><div class="row"><button type="button" class="${cls}" data-v="1" aria-pressed="false">${a}</button><button type="button" class="${cls}" data-v="0" aria-pressed="false">${b}</button></div>`;
+  const modeChoice = (k, q, w) => `<span class="label">${q}</span>
+    <div class="modes" data-for="${k}"><button type="button" class="mode" data-mode="ecrire" aria-pressed="true"><b>L'écrire</b><small>${w}</small></button>
     <button type="button" class="mode" data-mode="photo" aria-pressed="false"><b>Envoyer une photo</b><small>Photo du papier, floutée ou non</small></button></div>`;
-  const photoBlock = `<div id="m-photo" hidden><p class="hint">Écris tes objectifs sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
-      <label class="filebtn" id="pick"><input id="file" type="file" accept="image/*" capture="environment"><span id="picktxt">Prendre ou choisir la photo du papier</span></label>
-      <div class="photo" id="ph" hidden><canvas id="cv"></canvas>
-        <div class="blurctl"><span>Flou</span><input id="blur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span id="bv">6</span></div>
+  const photoBlock = k => `<div class="m-photo" id="ph-${k}" hidden><p class="hint">Écris-le sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
+      <label class="filebtn"><input class="pfile" data-k="${k}" type="file" accept="image/*" capture="environment"><span class="picktxt">Prendre ou choisir la photo du papier</span></label>
+      <div class="photo" hidden><canvas></canvas>
+        <div class="blurctl"><span>Flou</span><input class="pblur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span class="bv">6</span></div>
         <span class="hint">0 = sans flou. La photo est réduite pour consommer très peu de données.</span></div></div>`;
+  const progGrid = `<div class="prog-wrap"><table class="prog edit"><thead><tr><th>De</th><th>À</th>${JOURS_LONG.map(j => `<th>${j}</th>`).join("")}</tr></thead>
+    <tbody>${Array.from({ length: 9 }, (_, r) => `<tr><td><input type="time" class="pt-from" aria-label="Début ligne ${r + 1}"></td><td><input type="time" class="pt-to" aria-label="Fin ligne ${r + 1}"></td>
+      ${JOURS_LONG.map((j, c) => `<td><input class="pt-cell" data-c="${c}" maxlength="60" aria-label="${j}, ligne ${r + 1}"></td>`).join("")}</tr>`).join("")}</tbody></table></div>
+    <p class="hint">Fais glisser le tableau vers la gauche pour voir tous les jours. Chaque soir, ce que tu as prévu pour la journée te sera rappelé.</p>`;
+  const plan = type === "jour" ? dayPlan(me.uid) : [];
+  const matinToday = statsFor(me.uid).matin;
+  const report = type === "matin" ? dayPlan(me.uid).filter(t => t.src !== "matin") : [];
   const body = {
-    objectif: `${modeChoice}${photoBlock}
-      <div id="m-ecrire"><textarea id="wtxt" maxlength="1000" placeholder="Mon programme et mon objectif de la semaine…"></textarea></div>
+    objectif: `<p class="hint">Pour commencer la semaine, deux choses sont obligatoires : tes objectifs et ton programme.</p>
+      <div class="block"><h3>1. Objectifs de la semaine</h3>${modeChoice("obj", "Comment veux-tu les envoyer ?", "Taper mes objectifs directement")}${photoBlock("obj")}
+      <div id="ec-obj"><textarea id="wtxt" maxlength="1500" placeholder="Mes objectifs de la semaine…"></textarea></div></div>
+      <div class="block"><h3>2. Programme de la semaine</h3>${modeChoice("prog", "Comment veux-tu l'envoyer ?", "Remplir le tableau horaire")}${photoBlock("prog")}
+      <div id="ec-prog">${progGrid}</div></div>
       <textarea id="txt" maxlength="400" placeholder="Un mot en plus (facultatif)"></textarea>`,
     matin: `<p class="hint">Avant de commencer ta journée, fixe ce que tu vas accomplir. Ce soir, tu fais le point dans ton bilan.</p>
-      ${modeChoice}${photoBlock}
-      <div id="m-ecrire"><div class="items-in" id="items">${[0, 1, 2].map(i => `<input class="field item" maxlength="120" placeholder="Objectif ${i + 1}">`).join("")}</div>
+      ${report.length ? `<div class="carry"><b>Déjà prévu pour aujourd'hui</b>${report.map(t => `<span>${t.src === "report" ? "↻ Reporté d'hier · " : ""}${t.time ? esc(t.time) + " · " : ""}${esc(t.t)}</span>`).join("")}</div>` : ""}
+      ${modeChoice("matin", "Comment veux-tu les envoyer ?", "Taper mes objectifs directement")}${photoBlock("matin")}
+      <div id="ec-matin"><div class="items-in" id="items">${[0, 1, 2].map(i => `<input class="field item" maxlength="120" placeholder="Objectif ${i + 1}">`).join("")}</div>
       <button type="button" class="link" id="addit">+ Ajouter un objectif</button></div>
       <textarea id="txt" maxlength="400" placeholder="Un mot pour te motiver (facultatif)"></textarea>`,
-    jour: `${statsFor(me.uid).matin && statsFor(me.uid).matin.photo && !statsFor(me.uid).matin.items ? yesNo("As-tu accompli tes objectifs du jour ?", "Oui, tous", "Pas tous").replace(/class="choice"/g, 'class="choice2"') : ""}
-      ${statsFor(me.uid).matin && statsFor(me.uid).matin.items ? `<span class="label">Coche tes objectifs du jour accomplis</span>
-      <div class="checks">${statsFor(me.uid).matin.items.map((it, i) => `<label class="check"><input type="checkbox" class="chk" value="${i}"><span>${esc(it)}</span></label>`).join("")}</div>` : ""}
+    jour: `${plan.length ? `<span class="label">Ce que tu avais prévu aujourd'hui : coche ce qui est fait</span>
+      <div class="checks">${plan.map((t, i) => `<label class="check"><input type="checkbox" class="chk" value="${i}"><span>${t.time ? `<b>${esc(t.time)}</b> ` : ""}${esc(t.t)}${t.src === "report" ? ` <em class="rep">reporté</em>` : ""}</span></label>`).join("")}</div>
+      <p class="hint">Ce qui n'est pas coché sera ajouté à tes objectifs de demain.</p>` : ""}
+      ${matinToday && matinToday.photo && !matinToday.items ? yesNo("As-tu accompli tes objectifs du jour (photo) ?", "Oui, tous", "Pas tous", "choice2") : ""}
       ${yesNo("As-tu scrollé aujourd'hui ?", "Non, 0 scroll", "Oui, j'ai scrollé")}
       <textarea id="txt" maxlength="600" placeholder="Qu'as-tu fait pour ton objectif aujourd'hui ?"></textarea>`,
     semaine: `${yesNo("As-tu atteint ton objectif de la semaine ?", "Oui, atteint", "Non, pas atteint")}
@@ -686,38 +745,65 @@ function openSheet(type) {
       <div class="media-prev" id="mprev"></div><div class="hint" id="mstat"></div>` : ""}`
   }[type];
   wrap.innerHTML = `<div class="panel" role="dialog" aria-label="${TYPES[type]}">
-    <div class="sheet-head"><h2>${TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
-    ${body}<button class="btn btn-primary" id="send" disabled>Publier</button></div>`;
+    <div class="sheet-head"><h2>${type === "objectif" ? "Objectifs et programme de la semaine" : TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    ${body}<div class="err" id="serr"></div><button class="btn btn-primary" id="send" disabled>Publier</button></div>`;
   $("#layer").appendChild(wrap);
   const close = () => { $("#layer").innerHTML = ""; render(); };
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
   $("#x").onclick = close;
-  let choice = null, img = null;
+  let choice = null, matinOk = null, busy = false, mPhotos = [], mVideo = null;
+  const modes = { obj: "ecrire", prog: "ecrire", matin: "ecrire" }, imgs = {};
   const send = $("#send");
-  let mPhotos = [], mVideo = null, busy = false;
   const items = () => [...wrap.querySelectorAll(".item")].map(i => i.value.trim()).filter(Boolean);
-  let mode = "ecrire", matinOk = null;
+  const progRows = () => [...wrap.querySelectorAll(".prog.edit tbody tr")].map(tr => ({
+    from: tr.querySelector(".pt-from").value, to: tr.querySelector(".pt-to").value,
+    cells: [...tr.querySelectorAll(".pt-cell")].map(i => i.value.trim())
+  }));
+  const progFilled = () => progRows().some(r => r.cells.some(Boolean));
   const check = () => {
     let ok;
-    if (type === "matin") ok = mode === "photo" ? !!img : items().length > 0;
-    else if (type === "objectif") ok = mode === "photo" ? !!img : !!$("#wtxt").value.trim();
+    if (type === "matin") ok = modes.matin === "photo" ? !!imgs.matin : items().length > 0;
+    else if (type === "objectif") ok = (modes.obj === "photo" ? !!imgs.obj : !!$("#wtxt").value.trim()) && (modes.prog === "photo" ? !!imgs.prog : progFilled());
     else if (type === "message") ok = !!(mPhotos.length || mVideo || $("#txt").value.trim());
     else ok = choice !== null && (!wrap.querySelector(".choice2") || matinOk !== null);
     send.disabled = busy || !ok;
   };
-  wrap.querySelectorAll(".mode").forEach(b => b.onclick = () => {
-    mode = b.dataset.mode;
-    wrap.querySelectorAll(".mode").forEach(o => o.setAttribute("aria-pressed", o === b));
-    $("#m-photo").hidden = mode !== "photo"; $("#m-ecrire").hidden = mode !== "ecrire";
+  wrap.addEventListener("input", check);
+  wrap.querySelectorAll(".modes").forEach(g => g.querySelectorAll(".mode").forEach(b => b.onclick = () => {
+    const k = g.dataset.for; modes[k] = b.dataset.mode;
+    g.querySelectorAll(".mode").forEach(o => o.setAttribute("aria-pressed", o === b));
+    $("#ph-" + k).hidden = modes[k] !== "photo"; $("#ec-" + k).hidden = modes[k] !== "ecrire";
     check();
+  }));
+  wrap.querySelectorAll(".m-photo").forEach(box => {
+    const k = box.id.slice(3), cv = box.querySelector("canvas"), ctx = cv.getContext("2d"), blur = box.querySelector(".pblur");
+    const draw = () => {
+      const img = imgs["_" + k]; if (!img) return;
+      const W = 720, H = Math.round(img.height * W / img.width); cv.width = W; cv.height = H;
+      const b = +blur.value; box.querySelector(".bv").textContent = b;
+      if (b === 0) ctx.drawImage(img, 0, 0, W, H);
+      else {
+        const f = Math.max(4, Math.round(W / (b * 5 + 2)));
+        const sm = document.createElement("canvas"); sm.width = f; sm.height = Math.max(2, Math.round(H * f / W));
+        sm.getContext("2d").drawImage(img, 0, 0, sm.width, sm.height);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(sm, 0, 0, W, H);
+      }
+      imgs[k] = cv.toDataURL("image/jpeg", .5);
+    };
+    blur.oninput = draw;
+    box.querySelector(".pfile").onchange = e => {
+      const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { const i = new Image(); i.onload = () => { imgs["_" + k] = i; box.querySelector(".photo").hidden = false; box.querySelector(".picktxt").textContent = "Changer la photo"; draw(); check(); }; i.src = r.result; };
+      r.readAsDataURL(f);
+    };
   });
-  if ($("#wtxt")) $("#wtxt").oninput = check;
+  wrap.querySelectorAll(".choice").forEach(b => b.onclick = () => { choice = b.dataset.v === "1"; wrap.querySelectorAll(".choice").forEach(o => o.setAttribute("aria-pressed", o === b)); check(); });
   wrap.querySelectorAll(".choice2").forEach(b => b.onclick = () => { matinOk = b.dataset.v === "1"; wrap.querySelectorAll(".choice2").forEach(o => o.setAttribute("aria-pressed", o === b)); check(); });
-  wrap.querySelectorAll(".item").forEach(i => i.oninput = check);
   if ($("#addit")) $("#addit").onclick = () => {
     const box = $("#items"), n = box.querySelectorAll(".item").length;
     if (n >= 8) { $("#addit").hidden = true; return; }
-    const i = document.createElement("input"); i.className = "field item"; i.maxLength = 120; i.placeholder = `Objectif ${n + 1}`; i.oninput = check;
+    const i = document.createElement("input"); i.className = "field item"; i.maxLength = 120; i.placeholder = `Objectif ${n + 1}`;
     box.appendChild(i); i.focus(); if (n + 1 >= 8) $("#addit").hidden = true;
   };
   if ($("#mfile")) $("#mfile").onchange = async e => {
@@ -750,28 +836,6 @@ function openSheet(type) {
     $("#mprev").querySelectorAll("[data-rmv]").forEach(b => b.onclick = () => { mVideo = null; $("#mfile").dispatchEvent(new Event("change")); });
     check();
   };
-  wrap.querySelectorAll(".choice").forEach(b => b.onclick = () => { choice = b.dataset.v === "1"; wrap.querySelectorAll(".choice").forEach(o => o.setAttribute("aria-pressed", o === b)); check(); });
-  $("#txt").oninput = check;
-  if ($("#cv")) {
-    const cv = $("#cv"), ctx = cv.getContext("2d");
-    const draw = () => {
-      if (!img) return;
-      const W = 480, H = Math.round(img.height * W / img.width); cv.width = W; cv.height = H;
-      const b = +$("#blur").value; $("#bv").textContent = b;
-      if (b === 0) { ctx.drawImage(img, 0, 0, W, H); return; }
-      const f = Math.max(4, Math.round(W / (b * 5 + 2)));
-      const sm = document.createElement("canvas"); sm.width = f; sm.height = Math.max(2, Math.round(H * f / W));
-      sm.getContext("2d").drawImage(img, 0, 0, sm.width, sm.height);
-      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(sm, 0, 0, W, H);
-    };
-    $("#blur").oninput = draw;
-    $("#file").onchange = e => {
-      const f = e.target.files[0]; if (!f) return;
-      const r = new FileReader();
-      r.onload = () => { const i = new Image(); i.onload = () => { img = i; $("#ph").hidden = false; $("#picktxt").textContent = "Changer la photo"; draw(); check(); }; i.src = r.result; };
-      r.readAsDataURL(f);
-    };
-  }
   send.onclick = async () => {
     const now = new Date();
     const p = { uid: me.uid, name: me.name, type, text: $("#txt").value.trim(), ts: now.getTime(), week: weekKey(now), day: dayKey(now), likes: [] };
@@ -782,18 +846,27 @@ function openSheet(type) {
       try { const v = await uploadVideo(mVideo.blob); p.video = { ...v, poster: mVideo.poster }; }
       catch (e) { busy = false; check(); $("#mstat").textContent = "Échec de l'envoi de la vidéo. Réessaie."; return; }
     }
-    if ((type === "objectif" || type === "matin") && mode === "photo" && img) p.photo = $("#cv").toDataURL("image/jpeg", .55);
-    if (type === "objectif" && mode === "ecrire") p.text = [$("#wtxt").value.trim(), p.text].filter(Boolean).join("\n\n");
-    if (type === "jour" && matinOk !== null) p.matinOk = matinOk;
-    if (type === "jour") p.zero = choice;
-    if (type === "matin" && mode === "ecrire") p.items = items();
-    if (type === "jour" && statsFor(me.uid).matin && statsFor(me.uid).matin.items) {
-      p.itemsTotal = statsFor(me.uid).matin.items.length;
-      p.doneItems = [...wrap.querySelectorAll(".chk:checked")].map(c => +c.value);
+    if (type === "objectif") {
+      if (modes.obj === "photo") p.photo = imgs.obj; else p.objText = $("#wtxt").value.trim();
+      if (modes.prog === "photo") p.progPhoto = imgs.prog; else p.prog = progRows().filter(r => r.from || r.to || r.cells.some(Boolean));
+      if ((p.photo || "").length + (p.progPhoto || "").length > 780000) { $("#serr").textContent = "Les deux photos sont trop lourdes ensemble : augmente un peu le flou ou recadre."; return; }
+    }
+    if (type === "matin") { if (modes.matin === "photo") p.photo = imgs.matin; else p.items = items(); }
+    let showV = null;
+    if (type === "jour") {
+      p.zero = choice;
+      if (matinOk !== null) p.matinOk = matinOk;
+      if (plan.length) {
+        p.tasks = plan.map(t => ({ t: t.t, time: t.time, src: t.src }));
+        p.doneIdx = [...wrap.querySelectorAll(".chk:checked")].map(c => +c.value);
+        p.itemsTotal = plan.length; p.doneItems = p.doneIdx;
+        showV = [p.doneIdx.length, plan.length];
+      }
     }
     if (type === "semaine") p.atteint = choice;
     $("#layer").innerHTML = "";
-    savePost(p); render();
+    savePost(p);
+    if (showV) showVerdict(...showV); else render();
   };
 }
 

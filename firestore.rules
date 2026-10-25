@@ -33,6 +33,10 @@ service cloud.firestore {
         && (!('text' in request.resource.data) || request.resource.data.text.size() <= 1000)
         && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000)
         && (!('items' in request.resource.data) || request.resource.data.items.size() <= 8)
+        && (!('objText' in request.resource.data) || request.resource.data.objText.size() <= 1500)
+        && (!('prog' in request.resource.data) || request.resource.data.prog.size() <= 9)
+        && (!('progPhoto' in request.resource.data) || request.resource.data.progPhoto.size() <= 400000)
+        && (!('tasks' in request.resource.data) || request.resource.data.tasks.size() <= 80)
         && (!('photos' in request.resource.data) || admin())
         && (!('video' in request.resource.data) || admin());
       // J'aime : chacun ne peut ajouter ou retirer que son propre j'aime

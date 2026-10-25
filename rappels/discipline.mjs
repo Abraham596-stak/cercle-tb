@@ -66,7 +66,8 @@ function bienvenue(prenom) {
       "Personne ne te juge ici. On avance ensemble, un jour après l'autre."
     ]],
     ["Ta semaine dans le cercle", [
-      "<b>Dimanche à 20h30</b> : écris ton programme et ton objectif de la semaine sur un papier, prends-le en photo et publie-le (« Objectif de la semaine »). Tu peux flouter la photo si tu veux garder ton objectif privé.",
+      "<b>Dimanche à 20h30</b> : envoie obligatoirement tes <b>objectifs de la semaine</b> et ton <b>programme de la semaine</b>, écrits ou en photo du papier (floutée si tu veux). Le programme écrit se remplit dans un tableau horaire du lundi au dimanche.",
+      "<b>Chaque soir</b> : la notification te rappelle tout ce que tu avais prévu dans la journée. Tu coches fait ou non fait : ce qui n'est pas fait passe automatiquement au lendemain, et l'application te dit si tu as été sérieux ou si tu n'as pas tenu tes promesses.",
       "<b>Chaque matin, avant de commencer ta journée</b> : fixe tes objectifs du jour (« Objectifs du jour »). Le soir, tu coches ceux que tu as accomplis.",
       "<b>Du lundi au samedi à 23h30</b> : fais ton bilan du jour (« Bilan du jour ») : as-tu scrollé ou non, et qu'as-tu fait pour ton objectif ?",
       "<b>Dimanche à 8h</b> : fais ton bilan de la semaine (« Bilan de la semaine ») : objectif atteint ou non, ce qui a marché, ce qui a bloqué.",
