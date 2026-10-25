@@ -9,4 +9,4 @@ export const firebaseConfig = {
 };
 
 // Clé "Web Push" (Cloud Messaging > Certificats Web push)
-export const vapidKey = "";
+export const vapidKey = "BH8c3VAcIyqt_4LOEyVP9VHt2kPNIQKnCgdMkGel93EpEzMOHq4bQUqMnJ6WSR-P5gklEceKragd7UDAGQEAG4M";
