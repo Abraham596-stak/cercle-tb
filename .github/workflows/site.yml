@@ -1,4 +1,4 @@
-# Met en ligne https://cercle-tb.web.app et https://mon-argent-app.web.app à chaque modification
+# Met l'application en ligne sur https://cercle-tb.web.app à chaque modification à chaque modification
 name: Site
 on:
   push:

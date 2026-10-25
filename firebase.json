@@ -1,66 +1,35 @@
 {
-  "hosting": [
-    {
-      "target": "cercle",
-      "public": ".",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**",
-        "rappels/**",
-        "LISEZ-MOI.md",
-        "firestore.rules",
-        "argent/**"
-      ],
-      "headers": [
-        {
-          "source": "**/*.@(html|js|css|webmanifest|json)",
-          "headers": [
-            {
-              "key": "Cache-Control",
-              "value": "no-cache"
-            }
-          ]
-        },
-        {
-          "source": "/",
-          "headers": [
-            {
-              "key": "Cache-Control",
-              "value": "no-cache"
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "target": "argent",
-      "public": "argent",
-      "ignore": [
-        "**/.*"
-      ],
-      "headers": [
-        {
-          "source": "**/*.@(html|js|css|webmanifest|json)",
-          "headers": [
-            {
-              "key": "Cache-Control",
-              "value": "no-cache"
-            }
-          ]
-        },
-        {
-          "source": "/",
-          "headers": [
-            {
-              "key": "Cache-Control",
-              "value": "no-cache"
-            }
-          ]
-        }
-      ]
-    }
-  ],
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "rappels/**",
+      "LISEZ-MOI.md",
+      "firestore.rules"
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(html|js|css|webmanifest|json)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      },
+      {
+        "source": "/",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache"
+          }
+        ]
+      }
+    ]
+  },
   "firestore": {
     "rules": "firestore.rules"
   }
