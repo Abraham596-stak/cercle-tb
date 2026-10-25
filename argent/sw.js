@@ -1,5 +1,5 @@
 // Mon Argent : garde l'app en mémoire pour l'ouvrir sans réseau, et affiche les rappels.
-const CACHE = "mon-argent-v1";
+const CACHE = "mon-argent-v2";
 const FILES = ["./", "index.html", "style.css", "app.js", "firebase-config.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });

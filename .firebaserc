@@ -1,1 +1,17 @@
-{"projects":{"default":"cercle-tb"}}
+{
+  "projects": {
+    "default": "cercle-tb"
+  },
+  "targets": {
+    "cercle-tb": {
+      "hosting": {
+        "cercle": [
+          "cercle-tb"
+        ],
+        "argent": [
+          "mon-argent-app"
+        ]
+      }
+    }
+  }
+}
