@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "15";
+const APP_VERSION = "16";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -221,7 +221,7 @@ function autoDiscipline() {
     .forEach(m => setMember(m.uid, { status: "blocked", blockedReason: `Aucun bilan depuis ${INACTIF_JOURS} jours`, blockedAt: Date.now() }));
 }
 
-const TYPES = { objectif: "Objectif de la semaine", jour: "Bilan du jour", semaine: "Bilan de la semaine", message: "Message" };
+const TYPES = { objectif: "Objectif de la semaine", matin: "Objectifs du jour", jour: "Bilan du jour", semaine: "Bilan de la semaine", message: "Message" };
 async function savePost(p) {
   const ref = doc(collection(db, "posts"));
   p.id = ref.id;
@@ -238,7 +238,8 @@ function statsFor(uid) {
   const obj = mine.find(p => p.type === "objectif" && p.week === weekKey(new Date()));
   const done = mine.filter(p => p.type === "semaine" && p.atteint).length;
   const today = mine.find(p => p.type === "jour" && p.day === dayKey(new Date()));
-  return { streak, obj, done, today };
+  const matin = mine.find(p => p.type === "matin" && p.day === dayKey(new Date()));
+  return { streak, obj, done, today, matin };
 }
 
 /* ---------- vues ---------- */
@@ -254,11 +255,14 @@ function postHTML(p) {
   if (p.type === "semaine") tag = `<span class="tag ${p.atteint ? "ok" : "ko"}">${p.atteint ? "Objectif atteint" : "Objectif non atteint"}</span>`;
   if (p.type === "jour") tag = `<span class="tag ${p.zero ? "ok" : "ko"}">${p.zero ? "0 scroll" : "A scrollé"}</span>`;
   if (p.type === "message") tag = "";
+  if (p.type === "matin") tag = "";
+  if (p.type === "jour" && p.itemsTotal) tag += ` <span class="tag ${p.doneItems.length === p.itemsTotal ? "ok" : ""}">${p.doneItems.length}/${p.itemsTotal} objectifs du jour</span>`;
   const d = new Date(p.ts);
   const canDel = p.id && !p._pending && (p.uid === me.uid || isAdmin());
   return `<article class="card post">
     <div class="post-head">${canDel ? `<button class="icon-btn dark small-btn post-more" data-p="${esc(p.id)}" aria-label="Options">⋮</button>` : ""}${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
       <div class="meta"><strong>${esc(memberOf(p.uid).name || p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
+    ${p.type === "matin" ? itemsHTML(p) : ""}
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
     ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectif écrit sur papier" loading="lazy">` : ""}
@@ -306,6 +310,13 @@ function socialHTML(p) {
     </div>` : ""}
   </div>`;
 }
+function itemsHTML(p) {
+  const bilan = posts.find(x => x.uid === p.uid && x.type === "jour" && x.day === p.day && x.itemsTotal);
+  return `<ul class="day-items">${(p.items || []).map((it, i) => {
+    const st = bilan ? (bilan.doneItems.includes(i) ? "ok" : "ko") : "";
+    return `<li class="${st}"><span class="box">${st === "ok" ? "✓" : st === "ko" ? "✕" : ""}</span>${esc(it)}</li>`;
+  }).join("")}</ul>${bilan ? `<div class="hint items-sum">${bilan.doneItems.length}/${bilan.itemsTotal} accomplis</div>` : ""}`;
+}
 function header() {
   return `<header class="topbar"><div class="topbar-in">
     <div class="brandbox"><div class="wordmark small">cercle tb</div><div class="school">École de discipline de ${ADMIN_NAME}</div></div>
@@ -325,6 +336,7 @@ function todo(s) {
   let t = null;
   if (sun && (now.getHours() * 60 + now.getMinutes()) >= 20 * 60 + 30 && !s.obj) t = ["objectif", "Ton objectif de la semaine n'est pas encore envoyé", "Envoyer mon objectif"];
   else if (sun && (now.getHours() * 60 + now.getMinutes()) < 20 * 60 + 30 && !posts.some(p => p.uid === me.uid && p.type === "semaine" && p.day === dayKey(now))) t = ["semaine", "Fais le bilan de ta semaine", "Faire mon bilan de semaine"];
+  else if (!sun && !s.matin && !s.today && now.getHours() >= 4 && now.getHours() < 13) t = ["matin", "Fixe tes objectifs du jour avant de commencer", "Écrire mes objectifs du jour"];
   else if (!sun && !s.today && now.getHours() >= 18) t = ["jour", "Ton bilan du jour t'attend", "Faire mon bilan du jour"];
   else if (!s.obj && !sun) t = ["objectif", "Tu n'as pas encore d'objectif cette semaine", "Fixer mon objectif"];
   if (!t) return s.today ? `<div class="card done">Bilan du jour envoyé. Bravo, continue comme ça !</div>` : "";
@@ -333,7 +345,7 @@ function todo(s) {
 function filView() {
   const n = nextReminder(), s = statsFor(me.uid), ws = weekStart(new Date());
   const list = posts.filter(p => filter === "tout" || p.type === filter || (filter === "moi" && p.uid === me.uid));
-  const labels = { tout: "Toutes les publications", objectif: "Objectifs", jour: "Bilans du jour", semaine: "Bilans de semaine", message: "Messages", moi: "Mes publications" };
+  const labels = { tout: "Toutes les publications", objectif: "Objectifs", matin: "Objectifs du jour", jour: "Bilans du jour", semaine: "Bilans de semaine", message: "Messages", moi: "Mes publications" };
   const warns = (myDoc && myDoc.warnings) || [];
   const pend = members.filter(m => m.status === "pending").length;
   return `${header()}${ticker()}<main class="page">${notifBanner()}
@@ -452,12 +464,13 @@ function render() {
   if ($("#go-dem")) $("#go-dem").onclick = () => { view = "demandes"; render(); scrollTo(0, 0); };
   if ($("#compose")) $("#compose").onclick = () => openMenu([
     ["objectif", "Objectif de la semaine", "Photo du papier, floutée ou non"],
+    ["matin", "Objectifs du jour", "Ce que tu vas accomplir aujourd'hui"],
     ["jour", "Bilan du jour", "0 scroll ? Ce que tu as fait"],
     ["semaine", "Bilan de la semaine", "Objectif atteint ou pas"],
     ["message", "Message au groupe", "Encourager, poser une question"]
   ], k => openSheet(k), $("#composer"));
   if ($("#flt")) $("#flt").onclick = () => openMenu([
-    ["tout", "Toutes les publications", ""], ["objectif", "Objectifs", ""], ["jour", "Bilans du jour", ""],
+    ["tout", "Toutes les publications", ""], ["objectif", "Objectifs", ""], ["matin", "Objectifs du jour", ""], ["jour", "Bilans du jour", ""],
     ["semaine", "Bilans de semaine", ""], ["message", "Messages", ""], ["moi", "Mes publications", ""]
   ], k => { filter = k; render(); }, $("#flt").parentElement, filter);
   document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
@@ -650,7 +663,13 @@ function openSheet(type) {
         <div class="blurctl"><span>Flou</span><input id="blur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span id="bv">6</span></div>
         <span class="hint">0 = sans flou. La photo est réduite pour consommer très peu de données.</span></div>
       <textarea id="txt" maxlength="400" placeholder="Résumé de ton objectif (facultatif)"></textarea>`,
-    jour: `${yesNo("As-tu scrollé aujourd'hui ?", "Non, 0 scroll", "Oui, j'ai scrollé")}
+    matin: `<p class="hint">Avant de commencer ta journée, écris ce que tu vas accomplir. Ce soir, tu coches ce qui est fait dans ton bilan.</p>
+      <div class="items-in" id="items">${[0, 1, 2].map(i => `<input class="field item" maxlength="120" placeholder="Objectif ${i + 1}">`).join("")}</div>
+      <button type="button" class="link" id="addit">+ Ajouter un objectif</button>
+      <textarea id="txt" maxlength="400" placeholder="Un mot pour te motiver (facultatif)"></textarea>`,
+    jour: `${statsFor(me.uid).matin ? `<span class="label">Coche tes objectifs du jour accomplis</span>
+      <div class="checks">${statsFor(me.uid).matin.items.map((it, i) => `<label class="check"><input type="checkbox" class="chk" value="${i}"><span>${esc(it)}</span></label>`).join("")}</div>` : ""}
+      ${yesNo("As-tu scrollé aujourd'hui ?", "Non, 0 scroll", "Oui, j'ai scrollé")}
       <textarea id="txt" maxlength="600" placeholder="Qu'as-tu fait pour ton objectif aujourd'hui ?"></textarea>`,
     semaine: `${yesNo("As-tu atteint ton objectif de la semaine ?", "Oui, atteint", "Non, pas atteint")}
       <textarea id="txt" maxlength="600" placeholder="Ce qui a marché, ce qui a bloqué"></textarea>`,
@@ -668,7 +687,15 @@ function openSheet(type) {
   let choice = null, img = null;
   const send = $("#send");
   let mPhotos = [], mVideo = null, busy = false;
-  const check = () => { send.disabled = busy || ((type === "objectif" || type === "message") ? !(img || mPhotos.length || mVideo || $("#txt").value.trim()) : choice === null); };
+  const items = () => [...wrap.querySelectorAll(".item")].map(i => i.value.trim()).filter(Boolean);
+  const check = () => { send.disabled = busy || (type === "matin" ? !items().length : (type === "objectif" || type === "message") ? !(img || mPhotos.length || mVideo || $("#txt").value.trim()) : choice === null); };
+  wrap.querySelectorAll(".item").forEach(i => i.oninput = check);
+  if ($("#addit")) $("#addit").onclick = () => {
+    const box = $("#items"), n = box.querySelectorAll(".item").length;
+    if (n >= 8) { $("#addit").hidden = true; return; }
+    const i = document.createElement("input"); i.className = "field item"; i.maxLength = 120; i.placeholder = `Objectif ${n + 1}`; i.oninput = check;
+    box.appendChild(i); i.focus(); if (n + 1 >= 8) $("#addit").hidden = true;
+  };
   if ($("#mfile")) $("#mfile").onchange = async e => {
     const files = [...e.target.files]; e.target.value = "";
     const stat = $("#mstat"); busy = true; check();
@@ -733,6 +760,11 @@ function openSheet(type) {
     }
     if (type === "objectif" && img) p.photo = $("#cv").toDataURL("image/jpeg", .55);
     if (type === "jour") p.zero = choice;
+    if (type === "matin") p.items = items();
+    if (type === "jour" && statsFor(me.uid).matin) {
+      p.itemsTotal = statsFor(me.uid).matin.items.length;
+      p.doneItems = [...wrap.querySelectorAll(".chk:checked")].map(c => +c.value);
+    }
     if (type === "semaine") p.atteint = choice;
     $("#layer").innerHTML = "";
     savePost(p); render();

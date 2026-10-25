@@ -67,6 +67,7 @@ function bienvenue(prenom) {
     ]],
     ["Ta semaine dans le cercle", [
       "<b>Dimanche à 20h30</b> : écris ton programme et ton objectif de la semaine sur un papier, prends-le en photo et publie-le (« Objectif de la semaine »). Tu peux flouter la photo si tu veux garder ton objectif privé.",
+      "<b>Chaque matin, avant de commencer ta journée</b> : fixe tes objectifs du jour (« Objectifs du jour »). Le soir, tu coches ceux que tu as accomplis.",
       "<b>Du lundi au samedi à 23h30</b> : fais ton bilan du jour (« Bilan du jour ») : as-tu scrollé ou non, et qu'as-tu fait pour ton objectif ?",
       "<b>Dimanche à 8h</b> : fais ton bilan de la semaine (« Bilan de la semaine ») : objectif atteint ou non, ce qui a marché, ce qui a bloqué.",
       "Une notification te rappelle chaque rendez-vous, à condition d'avoir activé les rappels."

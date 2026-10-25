@@ -226,3 +226,17 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .c-input:focus { outline: 2px solid var(--navy); }
 .c-send { border: 0; background: none; color: var(--navy); font-size: 20px; width: 36px; height: 36px; }
 .act:not(.on) svg path { fill: none; stroke: currentColor; stroke-width: 2; }
+
+/* Objectifs du jour */
+.items-in { display: flex; flex-direction: column; gap: 8px; }
+.day-items { list-style: none; margin: 10px 0 0; padding: 0 16px; display: flex; flex-direction: column; gap: 6px; }
+.day-items li { display: flex; gap: 10px; align-items: flex-start; overflow-wrap: anywhere; }
+.day-items .box { flex: none; width: 20px; height: 20px; margin-top: 1px; border: 2px solid #BCC0C4; border-radius: 5px; display: grid; place-items: center; font-size: 12px; font-weight: 800; }
+.day-items li.ok .box { background: var(--ok); border-color: var(--ok); color: #fff; }
+.day-items li.ok { color: var(--muted); text-decoration: line-through; }
+.day-items li.ko .box { border-color: var(--ko); color: var(--ko); }
+.items-sum { padding: 6px 16px 0; }
+.checks { display: flex; flex-direction: column; gap: 6px; }
+.check { display: flex; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #DDDFE2; border-radius: 6px; cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: var(--ok); flex: none; }
+.check:has(input:checked) { border-color: var(--ok); background: var(--ok-bg); }

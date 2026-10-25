@@ -27,11 +27,12 @@ service cloud.firestore {
     match /posts/{id} {
       allow read: if valide();
       allow create: if valide() && request.resource.data.uid == request.auth.uid
-        && request.resource.data.type in ['objectif', 'jour', 'semaine', 'message']
+        && request.resource.data.type in ['objectif', 'matin', 'jour', 'semaine', 'message']
         && request.resource.data.ts is int
         && request.resource.data.ts <= request.time.toMillis() + 600000
         && (!('text' in request.resource.data) || request.resource.data.text.size() <= 1000)
         && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000)
+        && (!('items' in request.resource.data) || request.resource.data.items.size() <= 8)
         && (!('photos' in request.resource.data) || admin())
         && (!('video' in request.resource.data) || admin());
       // J'aime : chacun ne peut ajouter ou retirer que son propre j'aime
