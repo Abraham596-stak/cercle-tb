@@ -1,0 +1,18 @@
+# Crée l'adresse séparée de Mon Argent (une seule fois)
+name: Creer site Mon Argent
+on: workflow_dispatch
+jobs:
+  creer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Créer
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          echo "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          for n in mon-argent mon-argent-app monargent-app mon-argent-pro mes-finances-app; do
+            if npx -y firebase-tools@13 hosting:sites:create "$n" --project cercle-tb --non-interactive > o.txt 2>&1; then echo "::notice::SITE=$n"; cat o.txt; exit 0; fi
+            cat o.txt | tail -3
+          done
+          exit 1
