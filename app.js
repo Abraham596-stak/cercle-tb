@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   updateProfile, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc, deleteDoc, getDocs, Bytes,
-  onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
 if (location.hostname.endsWith("github.io")) location.replace("https://cercle-tb.web.app/" + location.search);
@@ -23,7 +23,7 @@ const BADGES = ["Discipliné(e)", "Zéro scroll", "Objectifs tenus", "Exemple du
 const INACTIF_JOURS = 14;
 
 let me = null, myDoc = undefined, posts = [], members = [], view = "fil", filter = "tout", online = navigator.onLine;
-let comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
+let priv = {}, comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
 let unsub = [], dataUnsub = [], swReg = null, installEvt = null, autoChecked = false;
 const isAdmin = () => !!me && me.email.toLowerCase() === ADMIN_EMAIL;
 
@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "18";
+const APP_VERSION = "19";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -154,13 +154,15 @@ function loginView(mode = "in") {
 
 /* ---------- données ---------- */
 let pendingName = null;
-function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; posts = []; members = []; comments = []; }
+function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; priv = {}; posts = []; members = []; comments = []; }
 function startData() {
   if (dataUnsub.length) return;
   dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(150)), { includeMetadataChanges: true }, snap => {
     posts = snap.docs.map(d => ({ ...d.data(), _pending: d.metadata.hasPendingWrites }));
     render();
   }, () => {}));
+  // Ce que j'ai écrit (objectifs, programme) : visible par moi seul
+  dataUnsub.push(onSnapshot(collection(db, "prives", me.uid, "semaines"), snap => { priv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); render(); }, () => {}));
   dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); }, () => {}));
   dataUnsub.push(onSnapshot(query(collection(db, "comments"), orderBy("ts", "asc"), limit(1000)), { includeMetadataChanges: true }, snap => {
     comments = snap.docs.map(d => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites }));
@@ -265,19 +267,25 @@ function postHTML(p) {
     <div class="post-head">${canDel ? `<button class="icon-btn dark small-btn post-more" data-p="${esc(p.id)}" aria-label="Options">⋮</button>` : ""}${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
       <div class="meta"><strong>${esc(memberOf(p.uid).name || p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
     ${p.type === "matin" ? itemsHTML(p) : ""}
-    ${p.type === "objectif" && p.objText ? `<div class="sec-t">Objectifs de la semaine</div><p class="post-text">${esc(p.objText)}</p>` : ""}
+
     ${p.type === "jour" && p.tasks ? tasksHTML(p) : ""}
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
-    ${p.type === "objectif" && p.photo && (p.prog || p.progPhoto) ? `<div class="sec-t">Objectifs de la semaine</div>` : ""}
-    ${p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectifs écrits sur papier" loading="lazy">` : ""}
-    ${p.type === "objectif" && (p.prog || p.progPhoto) ? `<div class="sec-t">Programme de la semaine</div>` : ""}
-    ${p.prog ? progTable(p.prog) : ""}
-    ${p.progPhoto ? `<img class="post-img" src="${p.progPhoto}" alt="Programme écrit sur papier" loading="lazy">` : ""}
+    ${p.type === "objectif" ? objHTML(p) : p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectifs écrits sur papier" loading="lazy">` : ""}
     ${mediaHTML(p)}
     ${p._pending ? `<div class="pending">En attente de réseau · envoi automatique</div>` : ""}
     ${p.id && !p._pending ? socialHTML(p) : ""}
   </article>`;
+}
+// Objectifs et programme de la semaine : uniquement en image (floutée ou non), jamais en texte lisible par les autres
+function objHTML(p) {
+  const lock = t => `<div class="locked">🔒 ${t}</div>`;
+  const part = (title, img, legacy, alt) => `<div class="sec-t">${title}</div>` + (img ? `<img class="post-img" src="${img}" alt="${alt}" loading="lazy">` : legacy || lock("Privé"));
+  const mine = p.uid === me.uid;
+  return part("Objectifs de la semaine", p.photo, p.objText ? `<p class="post-text">${esc(p.objText)}</p>` : "", "Objectifs de la semaine")
+    + part("Programme de la semaine", p.progPhoto, p.prog ? progTable(p.prog) : "", "Programme de la semaine")
+    + (p.edited ? `<p class="hint edited">Modifié le ${fmtDate(new Date(p.edited))} à ${fmtTime(new Date(p.edited))}</p>` : "")
+    + (mine && p.prive && !p.photo && !p.progPhoto ? `<p class="hint">Toi seul vois ton texte. Touche ⋮ → Modifier pour publier une image floutée ou non.</p>` : "");
 }
 const HEART = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.5h2c.7-1.3 2.2-2.5 4.3-2.5 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z" fill="currentColor"/></svg>`;
 const BUBBLE = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>`;
@@ -483,10 +491,14 @@ function render() {
     ["semaine", "Bilans de semaine", ""], ["message", "Messages", ""], ["moi", "Mes publications", ""]
   ], k => { filter = k; render(); }, $("#flt").parentElement, filter);
   document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
-    const id = b.dataset.p;
-    openMenu([["del", "Supprimer la publication", "Action définitive"]], () => {
+    const id = b.dataset.p, post = posts.find(x => x.id === id) || {};
+    const canEdit = post.type === "objectif" && post.uid === me.uid;
+    openMenu([...(canEdit ? [["edit", "Modifier", "Objectifs et programme de la semaine"]] : []), ["del", "Supprimer la publication", "Action définitive"]], k => {
+      if (k === "edit") { openSheet("objectif", post); return; }
       openMenu([["yes", "Oui, supprimer", ""], ["no", "Annuler", ""]], k => {
-        if (k === "yes") deleteDoc(doc(db, "posts", id)).then(() => toast("Publication supprimée")).catch(() => toast("Suppression refusée"));
+        if (k !== "yes") return;
+        deleteDoc(doc(db, "posts", id)).then(() => toast("Publication supprimée")).catch(() => toast("Suppression refusée"));
+        if (canEdit && post.week) deleteDoc(doc(db, "prives", me.uid, "semaines", post.week)).catch(() => {});
       }, b.parentElement);
     }, b.parentElement);
   });
@@ -668,8 +680,9 @@ function dayPlan(uid, date = new Date()) {
   const dk = dayKey(date), wk = dayKey(mondayOf(date)), mine = posts.filter(p => p.uid === uid);
   const tasks = [], seen = new Set();
   const add = (t, src, time = "") => { const k = t.trim().toLowerCase(); if (!k || seen.has(k)) return; seen.add(k); tasks.push({ t: t.trim(), src, time }); };
-  const obj = mine.find(p => p.type === "objectif" && p.week === wk && p.prog);
-  if (obj) obj.prog.forEach(r => { const c = (r.cells || [])[dayIdx(date)]; if (c && c.trim()) add(c, "prog", r.from && r.to ? `${r.from}-${r.to}` : (r.from || "")); });
+  const obj = mine.find(p => p.type === "objectif" && p.week === wk);
+  const prog = (uid === me.uid && priv[wk] && priv[wk].prog) || (obj && obj.prog);
+  if (prog) prog.forEach(r => { const c = (r.cells || [])[dayIdx(date)]; if (c && c.trim()) add(c, "prog", r.from && r.to ? `${r.from}-${r.to}` : (r.from || "")); });
   const lim = Date.now() - 3 * 864e5;
   const prev = mine.filter(p => p.type === "jour" && p.day < dk && p.ts > lim && p.tasks).sort((a, b) => b.ts - a.ts)[0];
   if (prev) prev.tasks.forEach((t, i) => { if (!(prev.doneIdx || []).includes(i)) add(t.t, "report", t.time || ""); });
@@ -700,14 +713,87 @@ function progTable(prog) {
   return `<div class="prog-wrap"><table class="prog"><thead><tr><th>Horaire</th>${JOURS_LONG.map(j => `<th>${j.slice(0, 3)}.</th>`).join("")}</tr></thead>
     <tbody>${rows.map(r => `<tr><th>${esc(r.from || "")}${r.to ? "–" + esc(r.to) : ""}</th>${(r.cells || []).map(c => `<td>${esc(c || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
-function openSheet(type) {
+// Floute (pixelise) une image ou un canvas dans le canvas donné, et renvoie l'image JPEG
+function blurTo(cv, src, b) {
+  const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height;
+  const W = Math.min(1080, sw), H = Math.round(sh * W / sw); cv.width = W; cv.height = H;
+  const ctx = cv.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  if (!b) ctx.drawImage(src, 0, 0, W, H);
+  else {
+    const f = Math.max(4, Math.round(W / (b * 5 + 2)));
+    const sm = document.createElement("canvas"); sm.width = f; sm.height = Math.max(2, Math.round(H * f / W));
+    sm.getContext("2d").drawImage(src, 0, 0, sm.width, sm.height);
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(sm, 0, 0, W, H);
+  }
+  return cv.toDataURL("image/jpeg", b ? .5 : .62);
+}
+function wrapLines(ctx, text, maxW) {
+  const out = [];
+  String(text).split("\n").forEach(par => {
+    let line = "";
+    par.split(/\s+/).forEach(w => {
+      while (ctx.measureText(w).width > maxW) { // mot trop long
+        let i = w.length; while (i > 1 && ctx.measureText(w.slice(0, i)).width > maxW) i--;
+        if (line) { out.push(line); line = ""; } out.push(w.slice(0, i)); w = w.slice(i);
+      }
+      const t = line ? line + " " + w : w;
+      if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t;
+    });
+    out.push(line);
+  });
+  return out;
+}
+const FONT = '"Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+function textImage(title, text, name) {
+  const W = 1080, M = 70, LH = 54, c = document.createElement("canvas"), x = c.getContext("2d");
+  x.font = `38px ${FONT}`; const lines = wrapLines(x, text, W - 2 * M);
+  c.width = W; c.height = 230 + lines.length * LH + 60;
+  x.fillStyle = "#fff"; x.fillRect(0, 0, W, c.height);
+  x.fillStyle = "#1877F2"; x.fillRect(0, 0, W, 14);
+  x.fillStyle = "#0B1F3A"; x.font = `bold 50px ${FONT}`; x.fillText(title, M, 110);
+  x.fillStyle = "#65676B"; x.font = `30px ${FONT}`; x.fillText(name, M, 160);
+  x.fillStyle = "#1C1E21"; x.font = `38px ${FONT}`;
+  lines.forEach((l, i) => x.fillText(l, M, 240 + i * LH));
+  return c;
+}
+function progImage(rows, name) {
+  const TW = 150, CW = 150, M = 30, W = M * 2 + TW + CW * 7, c = document.createElement("canvas"), x = c.getContext("2d");
+  x.font = `21px ${FONT}`;
+  const cellLines = rows.map(r => (r.cells || []).map(t => wrapLines(x, t || "", CW - 16).slice(0, 6)));
+  const hs = cellLines.map(cl => Math.max(56, ...cl.map(l => l.length * 26 + 22)));
+  const top = 170, head = 52;
+  c.width = W; c.height = top + head + hs.reduce((a, h) => a + h, 0) + 40;
+  x.fillStyle = "#fff"; x.fillRect(0, 0, W, c.height);
+  x.fillStyle = "#1877F2"; x.fillRect(0, 0, W, 12);
+  x.fillStyle = "#0B1F3A"; x.font = `bold 44px ${FONT}`; x.fillText("Programme de la semaine", M, 85);
+  x.fillStyle = "#65676B"; x.font = `26px ${FONT}`; x.fillText(name, M, 128);
+  x.fillStyle = "#E7F0FE"; x.fillRect(M, top, W - 2 * M, head);
+  x.fillStyle = "#0B1F3A"; x.font = `bold 22px ${FONT}`;
+  x.fillText("Horaire", M + 10, top + 33);
+  JOURS_LONG.forEach((j, i) => x.fillText(j, M + TW + i * CW + 10, top + 33));
+  let y = top + head;
+  rows.forEach((r, ri) => {
+    const h = hs[ri];
+    if (ri % 2) { x.fillStyle = "#F7F9FC"; x.fillRect(M, y, W - 2 * M, h); }
+    x.fillStyle = "#0B1F3A"; x.font = `bold 21px ${FONT}`;
+    x.fillText(r.from || "", M + 10, y + 30); if (r.to) x.fillText("→ " + r.to, M + 10, y + 56);
+    x.fillStyle = "#1C1E21"; x.font = `21px ${FONT}`;
+    cellLines[ri].forEach((ls, ci) => ls.forEach((l, li) => x.fillText(l, M + TW + ci * CW + 8, y + 30 + li * 26)));
+    y += h;
+  });
+  x.strokeStyle = "#D0D7E2"; x.lineWidth = 1.5;
+  let yy = top; [head, ...hs].forEach(h => { x.strokeRect(M, yy, W - 2 * M, h); yy += h; });
+  for (let i = 0; i <= 7; i++) { const xx = M + TW + i * CW; x.beginPath(); x.moveTo(i === 7 ? W - M : xx, top); x.lineTo(i === 7 ? W - M : xx, y); x.stroke(); }
+  return c;
+}
+function openSheet(type, edit = null) {
   $("#layer").innerHTML = "";
   const wrap = document.createElement("div"); wrap.className = "sheet";
   const yesNo = (q, a, b, cls = "choice") => `<span class="label">${q}</span><div class="row"><button type="button" class="${cls}" data-v="1" aria-pressed="false">${a}</button><button type="button" class="${cls}" data-v="0" aria-pressed="false">${b}</button></div>`;
   const modeChoice = (k, q, w) => `<span class="label">${q}</span>
     <div class="modes" data-for="${k}"><button type="button" class="mode" data-mode="ecrire" aria-pressed="true"><b>L'écrire</b><small>${w}</small></button>
     <button type="button" class="mode" data-mode="photo" aria-pressed="false"><b>Envoyer une photo</b><small>Photo du papier, floutée ou non</small></button></div>`;
-  const photoBlock = k => `<div class="m-photo" id="ph-${k}" hidden><p class="hint">Écris-le sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
+  const photoBlock = k => `<div class="m-photo ${type === "objectif" ? "noblur" : ""}" id="ph-${k}" hidden><p class="hint">Écris-le sur un papier, prends-le en photo, puis choisis de flouter ou non.</p>
       <label class="filebtn"><input class="pfile" data-k="${k}" type="file" accept="image/*" capture="environment"><span class="picktxt">Prendre ou choisir la photo du papier</span></label>
       <div class="photo" hidden><canvas></canvas>
         <div class="blurctl"><span>Flou</span><input class="pblur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span class="bv">6</span></div>
@@ -720,12 +806,17 @@ function openSheet(type) {
   const matinToday = statsFor(me.uid).matin;
   const report = type === "matin" ? dayPlan(me.uid).filter(t => t.src !== "matin") : [];
   const body = {
-    objectif: `<p class="hint">Pour commencer la semaine, deux choses sont obligatoires : tes objectifs et ton programme.</p>
+    objectif: `<div id="step1"><p class="hint">Pour commencer la semaine, deux choses sont obligatoires : tes objectifs et ton programme. Ce que tu écris est transformé en image : tu choisis de la flouter ou non avant de publier.</p>
       <div class="block"><h3>1. Objectifs de la semaine</h3>${modeChoice("obj", "Comment veux-tu les envoyer ?", "Taper mes objectifs directement")}${photoBlock("obj")}
       <div id="ec-obj"><textarea id="wtxt" maxlength="1500" placeholder="Mes objectifs de la semaine…"></textarea></div></div>
       <div class="block"><h3>2. Programme de la semaine</h3>${modeChoice("prog", "Comment veux-tu l'envoyer ?", "Remplir le tableau horaire")}${photoBlock("prog")}
       <div id="ec-prog">${progGrid}</div></div>
-      <textarea id="txt" maxlength="400" placeholder="Un mot en plus (facultatif)"></textarea>`,
+      <textarea id="txt" maxlength="400" placeholder="Un mot en plus (facultatif)"></textarea></div>
+      <div id="step2" hidden><p class="hint">Voici ce que le cercle verra. Floute si tu ne veux pas qu'on puisse lire. Le texte, lui, reste visible par toi seul.</p>
+        ${["obj", "prog"].map(k => `<div class="block pv" data-pv="${k}"><h3>${k === "obj" ? "Objectifs de la semaine" : "Programme de la semaine"}</h3>
+          <div class="photo"><canvas></canvas><div class="blurctl"><span>Flou</span><input class="pvblur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span class="bv">6</span></div>
+          <span class="hint">0 = lisible par tous · 10 = illisible</span></div></div>`).join("")}
+        <button type="button" class="link" id="back">‹ Revenir modifier</button></div>`,
     matin: `<p class="hint">Avant de commencer ta journée, fixe ce que tu vas accomplir. Ce soir, tu fais le point dans ton bilan.</p>
       ${report.length ? `<div class="carry"><b>Déjà prévu pour aujourd'hui</b>${report.map(t => `<span>${t.src === "report" ? "↻ Reporté d'hier · " : ""}${t.time ? esc(t.time) + " · " : ""}${esc(t.t)}</span>`).join("")}</div>` : ""}
       ${modeChoice("matin", "Comment veux-tu les envoyer ?", "Taper mes objectifs directement")}${photoBlock("matin")}
@@ -745,8 +836,8 @@ function openSheet(type) {
       <div class="media-prev" id="mprev"></div><div class="hint" id="mstat"></div>` : ""}`
   }[type];
   wrap.innerHTML = `<div class="panel" role="dialog" aria-label="${TYPES[type]}">
-    <div class="sheet-head"><h2>${type === "objectif" ? "Objectifs et programme de la semaine" : TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
-    ${body}<div class="err" id="serr"></div><button class="btn btn-primary" id="send" disabled>Publier</button></div>`;
+    <div class="sheet-head"><h2>${type === "objectif" ? (edit ? "Modifier mes objectifs et mon programme" : "Objectifs et programme de la semaine") : TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    ${body}<div class="err" id="serr"></div><button class="btn btn-primary" id="send" disabled>${type === "objectif" ? "Continuer" : "Publier"}</button></div>`;
   $("#layer").appendChild(wrap);
   const close = () => { $("#layer").innerHTML = ""; render(); };
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
@@ -836,7 +927,45 @@ function openSheet(type) {
     $("#mprev").querySelectorAll("[data-rmv]").forEach(b => b.onclick = () => { mVideo = null; $("#mfile").dispatchEvent(new Event("change")); });
     check();
   };
+  // ----- objectifs : prévisualisation en image + modification -----
+  let step = 1; const pv = {};
+  if (type === "objectif" && edit) {
+    const pr = priv[edit.week] || {};
+    const setMode = (k, m) => wrap.querySelector(`.modes[data-for="${k}"] [data-mode="${m}"]`).click();
+    const txt = pr.objText ?? edit.objText, prog = pr.prog || edit.prog;
+    if (txt) $("#wtxt").value = txt;
+    else if (edit.photo) { setMode("obj", "photo"); loadInto("obj", edit.photo); }
+    if (prog) { const trs = wrap.querySelectorAll(".prog.edit tbody tr"); prog.forEach((r, i) => { const tr = trs[i]; if (!tr) return;
+      tr.querySelector(".pt-from").value = r.from || ""; tr.querySelector(".pt-to").value = r.to || "";
+      tr.querySelectorAll(".pt-cell").forEach((c, j) => c.value = (r.cells || [])[j] || ""); }); }
+    else if (edit.progPhoto) { setMode("prog", "photo"); loadInto("prog", edit.progPhoto); }
+    $("#txt").value = edit.text || "";
+    check();
+  }
+  function loadInto(k, src) { const i = new Image(); i.onload = () => { imgs["_" + k] = i; imgs[k] = src; const box = $("#ph-" + k); box.querySelector(".photo").hidden = false;
+    box.querySelector(".picktxt").textContent = "Changer la photo"; box.querySelector(".pblur").value = 0; box.querySelector(".pblur").dispatchEvent(new Event("input")); check(); }; i.src = src; }
+  const drawPv = k => { const box = wrap.querySelector(`[data-pv="${k}"]`), b = +box.querySelector(".pvblur").value; box.querySelector(".bv").textContent = b; pv[k] = blurTo(box.querySelector("canvas"), pv["_" + k], b); };
+  wrap.querySelectorAll(".pvblur").forEach(r => r.oninput = () => drawPv(r.closest("[data-pv]").dataset.pv));
+  if ($("#back")) $("#back").onclick = () => { step = 1; $("#step1").hidden = false; $("#step2").hidden = true; send.textContent = "Continuer"; };
   send.onclick = async () => {
+    if (type === "objectif" && step === 1) {
+      pv._obj = modes.obj === "photo" ? imgs._obj : textImage("Objectifs de la semaine", $("#wtxt").value.trim(), me.name);
+      pv._prog = modes.prog === "photo" ? imgs._prog : progImage(progRows().filter(r => r.from || r.to || r.cells.some(Boolean)), me.name);
+      ["obj", "prog"].forEach(drawPv);
+      step = 2; $("#step1").hidden = true; $("#step2").hidden = false; send.textContent = edit ? "Enregistrer les modifications" : "Publier";
+      wrap.querySelector(".panel").scrollTop = 0; return;
+    }
+    if (type === "objectif") {
+      const photo = pv.obj, progPhoto = pv.prog, week = edit ? edit.week : weekKey(new Date());
+      if (photo.length + progPhoto.length > 780000) { $("#serr").textContent = "Les images sont trop lourdes : augmente un peu le flou."; return; }
+      const secret = { objText: modes.obj === "ecrire" ? $("#wtxt").value.trim() : "", prog: modes.prog === "ecrire" ? progRows().filter(r => r.from || r.to || r.cells.some(Boolean)) : [], ts: Date.now() };
+      setDoc(doc(db, "prives", me.uid, "semaines", week), secret).catch(() => toast("Ton texte n'a pas pu être gardé. Vérifie ta connexion."));
+      if (edit) {
+        updateDoc(doc(db, "posts", edit.id), { photo, progPhoto, text: $("#txt").value.trim(), edited: Date.now(), objText: deleteField(), prog: deleteField() })
+          .then(() => toast("Modifications enregistrées")).catch(() => toast("Modification refusée. Vérifie ta connexion."));
+        $("#layer").innerHTML = ""; render(); return;
+      }
+    }
     const now = new Date();
     const p = { uid: me.uid, name: me.name, type, text: $("#txt").value.trim(), ts: now.getTime(), week: weekKey(now), day: dayKey(now), likes: [] };
     if (mPhotos.length) p.photos = mPhotos;
@@ -846,11 +975,7 @@ function openSheet(type) {
       try { const v = await uploadVideo(mVideo.blob); p.video = { ...v, poster: mVideo.poster }; }
       catch (e) { busy = false; check(); $("#mstat").textContent = "Échec de l'envoi de la vidéo. Réessaie."; return; }
     }
-    if (type === "objectif") {
-      if (modes.obj === "photo") p.photo = imgs.obj; else p.objText = $("#wtxt").value.trim();
-      if (modes.prog === "photo") p.progPhoto = imgs.prog; else p.prog = progRows().filter(r => r.from || r.to || r.cells.some(Boolean));
-      if ((p.photo || "").length + (p.progPhoto || "").length > 780000) { $("#serr").textContent = "Les deux photos sont trop lourdes ensemble : augmente un peu le flou ou recadre."; return; }
-    }
+    if (type === "objectif") { p.photo = pv.obj; p.progPhoto = pv.prog; }
     if (type === "matin") { if (modes.matin === "photo") p.photo = imgs.matin; else p.items = items(); }
     let showV = null;
     if (type === "jour") {

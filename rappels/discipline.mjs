@@ -22,6 +22,16 @@ for (const m of members.filter(m => !m.status)) {
   console.log("Ancien membre validé :", m.name);
 }
 
+// 1 bis. Confidentialité : le texte des objectifs et programmes déjà publiés devient privé (visible par l'auteur seul)
+const anciens = await db.collection("posts").where("type", "==", "objectif").get();
+for (const d of anciens.docs) {
+  const p = d.data();
+  if (p.objText === undefined && p.prog === undefined) continue;
+  await db.collection("prives").doc(p.uid).collection("semaines").doc(p.week).set({ objText: p.objText || "", prog: p.prog || [], ts: p.ts }, { merge: true });
+  await d.ref.update({ objText: admin.firestore.FieldValue.delete(), prog: admin.firestore.FieldValue.delete(), prive: true });
+  console.log("Objectifs rendus privés :", p.name, p.week);
+}
+
 // 2. Nouvelles demandes
 const nouvelles = members.filter(m => m.status === "pending" && !m.notified);
 if (nouvelles.length) {
@@ -66,7 +76,7 @@ function bienvenue(prenom) {
       "Personne ne te juge ici. On avance ensemble, un jour après l'autre."
     ]],
     ["Ta semaine dans le cercle", [
-      "<b>Dimanche à 20h30</b> : envoie obligatoirement tes <b>objectifs de la semaine</b> et ton <b>programme de la semaine</b>, écrits ou en photo du papier (floutée si tu veux). Le programme écrit se remplit dans un tableau horaire du lundi au dimanche.",
+      "<b>Dimanche à 20h30</b> : envoie obligatoirement tes <b>objectifs de la semaine</b> et ton <b>programme de la semaine</b>, écrits ou en photo du papier. Ce que tu écris est transformé en image, que tu peux flouter avant de publier : personne ne lit ton texte. Tu peux les modifier après publication (⋮ → Modifier).",
       "<b>Chaque soir</b> : la notification te rappelle tout ce que tu avais prévu dans la journée. Tu coches fait ou non fait : ce qui n'est pas fait passe automatiquement au lendemain, et l'application te dit si tu as été sérieux ou si tu n'as pas tenu tes promesses.",
       "<b>Chaque matin, avant de commencer ta journée</b> : fixe tes objectifs du jour (« Objectifs du jour »). Le soir, tu coches ceux que tu as accomplis.",
       "<b>Du lundi au samedi à 23h30</b> : fais ton bilan du jour (« Bilan du jour ») : as-tu scrollé ou non, et qu'as-tu fait pour ton objectif ?",

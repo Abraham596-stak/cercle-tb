@@ -57,8 +57,10 @@ if (type === "jour") {
     const mine = semaine.filter(p => p.uid === uid);
     const t = [], vu = new Set();
     const add = (x, h) => { const k = (x || "").trim().toLowerCase(); if (!k || vu.has(k)) return; vu.add(k); t.push((h ? h + " " : "") + x.trim()); };
-    const obj = mine.find(p => p.type === "objectif" && p.week === lundi && p.prog);
-    if (obj) obj.prog.forEach(r => add((r.cells || [])[idx], r.from && r.to ? `${r.from}-${r.to}` : r.from));
+    const obj = mine.find(p => p.type === "objectif" && p.week === lundi);
+    const secret = (await db.collection("prives").doc(uid).collection("semaines").doc(lundi).get()).data();
+    const prog = (secret && secret.prog && secret.prog.length ? secret.prog : null) || (obj && obj.prog);
+    if (prog) prog.forEach(r => add((r.cells || [])[idx], r.from && r.to ? `${r.from}-${r.to}` : r.from));
     const prev = mine.filter(p => p.type === "jour" && p.day < jour && p.ts > Date.now() - 3 * 864e5 && p.tasks).sort((a, b) => b.ts - a.ts)[0];
     if (prev) prev.tasks.forEach((x, i) => { if (!(prev.doneIdx || []).includes(i)) add(x.t, x.time); });
     const matin = mine.find(p => p.type === "matin" && p.day === jour && p.items);

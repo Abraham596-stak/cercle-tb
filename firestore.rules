@@ -33,13 +33,20 @@ service cloud.firestore {
         && (!('text' in request.resource.data) || request.resource.data.text.size() <= 1000)
         && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000)
         && (!('items' in request.resource.data) || request.resource.data.items.size() <= 8)
-        && (!('objText' in request.resource.data) || request.resource.data.objText.size() <= 1500)
-        && (!('prog' in request.resource.data) || request.resource.data.prog.size() <= 9)
+        && !('objText' in request.resource.data)
+        && !('prog' in request.resource.data)
         && (!('progPhoto' in request.resource.data) || request.resource.data.progPhoto.size() <= 400000)
         && (!('tasks' in request.resource.data) || request.resource.data.tasks.size() <= 80)
         && (!('photos' in request.resource.data) || admin())
         && (!('video' in request.resource.data) || admin());
       // J'aime : chacun ne peut ajouter ou retirer que son propre j'aime
+      // L'auteur peut modifier ses objectifs et son programme (images seulement)
+      allow update: if (valide() && resource.data.uid == request.auth.uid && resource.data.type == 'objectif'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photo', 'progPhoto', 'text', 'edited', 'objText', 'prog', 'prive'])
+        && !('objText' in request.resource.data) && !('prog' in request.resource.data)
+        && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000)
+        && (!('progPhoto' in request.resource.data) || request.resource.data.progPhoto.size() <= 400000)
+        && (!('text' in request.resource.data) || request.resource.data.text.size() <= 1000));
       allow update: if admin() || (valide()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
         && request.resource.data.likes.toSet().difference(resource.data.get('likes', []).toSet()).hasOnly([request.auth.uid])
@@ -65,6 +72,11 @@ service cloud.firestore {
         allow read: if valide();
         allow write: if admin();
       }
+    }
+
+    // Ce que chacun a écrit (objectifs, programme) : lisible par lui seul
+    match /prives/{uid}/{document=**} {
+      allow read, write: if connecte() && request.auth.uid == uid;
     }
 
     match /tokens/{token} {
