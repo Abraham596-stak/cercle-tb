@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "22";
+const APP_VERSION = "23";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -726,6 +726,18 @@ function bindTabs() {
   const markRead = c => { if (convoUnread(c)) setDoc(doc(db, "convos", c.uid), isAdmin() ? { seenAdmin: Date.now() } : { seenMember: Date.now() }, { merge: true }).catch(() => {}); };
   if (view === "messages" && !isAdmin() && convo) markRead({ ...convo, uid: me.uid });
   if (view === "chat" && isAdmin()) { const c = convos.find(x => x.uid === chatUid); if (c) markRead(c); }
+  // Fondateur seulement : télécharger ou partager les images du guide (statut WhatsApp, etc.)
+  const shareImgs = async (names, title) => {
+    try {
+      const files = await Promise.all(names.map(async n => new File([await (await fetch(`guide/${n}.jpg`)).blob()], `cercle-tb-${n}.jpg`, { type: "image/jpeg" })));
+      if (navigator.canShare && navigator.canShare({ files })) await navigator.share({ files, title, text: `${title} · Cercle TB : https://cercle-tb.web.app` });
+      else { files.forEach(f => { const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); }); toast("Images téléchargées dans ta galerie / tes téléchargements"); }
+    } catch (e) { if (e.name !== "AbortError") toast("Partage impossible. Utilise « Télécharger » sous chaque image."); }
+  };
+  if (isAdmin()) {
+    document.querySelectorAll("[data-gshare]").forEach(b => b.onclick = () => { const g = GUIDE.find(x => x[0] === b.dataset.gshare); shareImgs(g[2], g[1].replace(/^\d+\.\s*/, "")); });
+    document.querySelectorAll("[data-gone]").forEach(b => b.onclick = () => { const g = GUIDE.find(x => x[2].includes(b.dataset.gone)); shareImgs([b.dataset.gone], g ? g[1].replace(/^\d+\.\s*/, "") : "Guide"); });
+  }
   document.querySelectorAll("[data-g]").forEach(d => d.ontoggle = () => d.open ? guideOpen.add(d.dataset.g) : guideOpen.delete(d.dataset.g));
   document.querySelectorAll("[data-chat]").forEach(b => b.onclick = () => openChat(b.dataset.chat));
   if ($("#chat-back")) $("#chat-back").onclick = () => { if (chatUnsub) chatUnsub(); chatUnsub = null; view = "messages"; render(); };
@@ -794,7 +806,9 @@ const guideOpen = new Set(["installer"]);
 function guideView() {
   return `${header()}<main class="page"><section class="card pad-in"><h2 class="g-title">Guide en images</h2><p class="hint">Chaque étape, avec une flèche rouge sur l'endroit où appuyer. Touche un titre pour l'ouvrir.</p></section>
   ${GUIDE.map(([k, t, imgs]) => `<details class="card guide" data-g="${k}" ${guideOpen.has(k) ? "open" : ""}><summary>${t}</summary>
-    <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.jpg" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption></figure>`).join("")}</div></details>`).join("")}
+    ${isAdmin() ? `<div class="g-admin"><button class="btn btn-primary btn-sm" data-gshare="${k}">Partager les ${imgs.length} image${imgs.length > 1 ? "s" : ""} (statut WhatsApp…)</button></div>` : ""}
+    <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.jpg" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption>
+      ${isAdmin() ? `<div class="g-acts"><a class="link-sm" href="guide/${im}.jpg" download="cercle-tb-${im}.jpg">⤓ Télécharger</a><button class="link-sm" data-gone="${im}">Partager</button></div>` : ""}</figure>`).join("")}</div></details>`).join("")}
   </main>`;
 }
 function openWarn(m) {
