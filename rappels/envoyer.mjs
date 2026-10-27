@@ -52,9 +52,11 @@ const parUid = {};
 if (type === "jour") {
   const lundi = new Date(Date.UTC(ici.getUTCFullYear(), ici.getUTCMonth(), ici.getUTCDate() - (ici.getUTCDay() + 6) % 7)).toISOString().slice(0, 10);
   const idx = (ici.getUTCDay() + 6) % 7;
-  const semaine = (await db.collection("posts").where("ts", ">=", Date.now() - 9 * 864e5).get()).docs.map(d => d.data());
+  const semaine = (await db.collection("posts").where("ts", ">=", Date.now() - 9 * 864e5).get()).docs.map(d => ({ ...d.data(), id: d.id }));
   for (const uid of valides) {
-    const mine = semaine.filter(p => p.uid === uid);
+    // le détail des publications privées est rangé à part, visible par l'auteur seul
+    const pv = Object.fromEntries((await db.collection("prives").doc(uid).collection("posts").get()).docs.map(d => [d.id, d.data()]));
+    const mine = semaine.filter(p => p.uid === uid).map(p => ({ ...p, ...(pv[p.id] || {}) }));
     const t = [], vu = new Set();
     const add = (x, h) => { const k = (x || "").trim().toLowerCase(); if (!k || vu.has(k)) return; vu.add(k); t.push((h ? h + " " : "") + x.trim()); };
     const obj = mine.find(p => p.type === "objectif" && p.week === lundi);

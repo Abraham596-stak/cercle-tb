@@ -32,6 +32,17 @@ for (const d of anciens.docs) {
   console.log("Objectifs rendus privés :", p.name, p.week);
 }
 
+// 1 ter. Confidentialité : le détail des bilans et objectifs du jour déjà publiés devient privé (visible par l'auteur seul)
+const CHAMPS = ["items", "tasks", "doneIdx", "itemsTotal", "doneItems", "zero", "matinOk", "atteint", "text"];
+const aCacher = (await db.collection("posts").where("type", "in", ["matin", "jour", "semaine", "objectif"]).get()).docs.filter(d => d.data().prive === undefined || (d.data().prive === true && CHAMPS.some(k => d.data()[k] !== undefined)));
+for (const d of aCacher) {
+  const p = d.data(), secret = {}, efface = { prive: true };
+  CHAMPS.forEach(k => { if (p[k] !== undefined) { secret[k] = p[k]; efface[k] = admin.firestore.FieldValue.delete(); } });
+  if (Object.keys(secret).length) await db.collection("prives").doc(p.uid).collection("posts").doc(d.id).set(secret, { merge: true });
+  await d.ref.update(efface);
+  console.log("Publication rendue privée :", p.name, p.type, p.day);
+}
+
 // 2. Nouvelles demandes
 const nouvelles = members.filter(m => m.status === "pending" && !m.notified);
 if (nouvelles.length) {

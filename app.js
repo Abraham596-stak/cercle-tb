@@ -23,7 +23,7 @@ const BADGES = ["Discipliné(e)", "Zéro scroll", "Objectifs tenus", "Exemple du
 const INACTIF_JOURS = 14;
 
 let me = null, myDoc = undefined, posts = [], members = [], view = "fil", filter = "tout", online = navigator.onLine;
-let priv = {}, comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
+let priv = {}, privPosts = {}, rawPosts = [], comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
 let unsub = [], dataUnsub = [], swReg = null, installEvt = null, autoChecked = false;
 const isAdmin = () => !!me && me.email.toLowerCase() === ADMIN_EMAIL;
 
@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "19";
+const APP_VERSION = "20";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -154,13 +154,15 @@ function loginView(mode = "in") {
 
 /* ---------- données ---------- */
 let pendingName = null;
-function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; priv = {}; posts = []; members = []; comments = []; }
+function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; priv = {}; privPosts = {}; rawPosts = []; posts = []; members = []; comments = []; }
 function startData() {
   if (dataUnsub.length) return;
   dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(150)), { includeMetadataChanges: true }, snap => {
-    posts = snap.docs.map(d => ({ ...d.data(), _pending: d.metadata.hasPendingWrites }));
-    render();
+    rawPosts = snap.docs.map(d => ({ ...d.data(), _pending: d.metadata.hasPendingWrites }));
+    mergePosts(); render();
   }, () => {}));
+  // Le détail de mes publications privées (bilans, objectifs du jour…) : visible par moi seul
+  dataUnsub.push(onSnapshot(collection(db, "prives", me.uid, "posts"), snap => { privPosts = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); mergePosts(); render(); }, () => {}));
   // Ce que j'ai écrit (objectifs, programme) : visible par moi seul
   dataUnsub.push(onSnapshot(collection(db, "prives", me.uid, "semaines"), snap => { priv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); render(); }, () => {}));
   dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); }, () => {}));
@@ -200,6 +202,11 @@ onAuthStateChanged(auth, u => {
   else { me = null; myDoc = undefined; unsub.forEach(f => f()); unsub = []; stopData(); loginView(); }
 });
 
+// Mes publications privées : je vois leur détail, les autres non
+function mergePosts() { posts = rawPosts.map(p => p.uid === me.uid && privPosts[p.id] ? { ...p, ...privPosts[p.id] } : p); }
+const PRIV_FIELDS = ["items", "tasks", "doneIdx", "itemsTotal", "doneItems", "zero", "matinOk", "atteint", "text"];
+const lockedFor = p => p.prive && p.uid !== me.uid;
+
 /* ---------- administration ---------- */
 const adminUid = () => (members.find(m => m.role === "admin") || {}).uid;
 const memberOf = uid => members.find(m => m.uid === uid) || {};
@@ -210,7 +217,7 @@ function daysInactive(m) {
 }
 function twoWeeksFailed(uid) {
   const w = posts.filter(p => p.uid === uid && p.type === "semaine").slice(0, 2);
-  return w.length === 2 && w.every(p => !p.atteint);
+  return w.length === 2 && w.every(p => p.atteint === false);
 }
 async function setMember(uid, data) {
   try { await updateDoc(doc(db, "members", uid), data); } catch (e) { toast("Action refusée. Vérifie ta connexion."); }
@@ -224,11 +231,34 @@ function autoDiscipline() {
 }
 
 const TYPES = { objectif: "Objectifs et programme de la semaine", matin: "Objectifs du jour", jour: "Bilan du jour", semaine: "Bilan de la semaine", message: "Message" };
-async function savePost(p) {
+async function savePost(p, prive = false) {
   const ref = doc(collection(db, "posts"));
   p.id = ref.id;
+  if (p.type !== "message") {
+    p.prive = prive;
+    if (prive) {
+      const secret = {};
+      PRIV_FIELDS.forEach(k => { if (k in p) { secret[k] = p[k]; delete p[k]; } });
+      setDoc(doc(db, "prives", me.uid, "posts", ref.id), secret).catch(() => toast("Le détail privé n'a pas pu être gardé."));
+    }
+  }
   setDoc(ref, p).catch(() => toast("Envoi refusé. Vérifie ta connexion au compte."));
-  toast(online ? "Envoyé au groupe" : "Gardé, envoi dès le retour du réseau");
+  toast(online ? (prive ? "Publié · détail visible par toi seul" : "Envoyé au groupe") : "Gardé, envoi dès le retour du réseau");
+}
+async function setVisibility(p, makePublic) {
+  try {
+    if (makePublic) {
+      const secret = privPosts[p.id] || {};
+      await updateDoc(doc(db, "posts", p.id), { ...secret, prive: false });
+      toast("Publication rendue publique");
+    } else {
+      const secret = {}, del = { prive: true };
+      PRIV_FIELDS.forEach(k => { if (p[k] !== undefined) { secret[k] = p[k]; del[k] = deleteField(); } });
+      await setDoc(doc(db, "prives", me.uid, "posts", p.id), secret);
+      await updateDoc(doc(db, "posts", p.id), del);
+      toast("Publication rendue privée");
+    }
+  } catch (e) { toast("Changement refusé. Vérifie ta connexion."); }
 }
 
 /* ---------- statistiques ---------- */
@@ -253,6 +283,7 @@ function nameTags(uid) {
   return founder + b;
 }
 function postHTML(p) {
+  if (lockedFor(p)) return lockedHTML(p);
   let tag = `<span class="tag">${TYPES[p.type] || ""}</span>`;
   if (p.type === "semaine") tag = `<span class="tag ${p.atteint ? "ok" : "ko"}">${p.atteint ? "Objectif atteint" : "Objectif non atteint"}</span>`;
   if (p.type === "jour") tag = `<span class="tag ${p.zero ? "ok" : "ko"}">${p.zero ? "0 scroll" : "A scrollé"}</span>`;
@@ -266,6 +297,7 @@ function postHTML(p) {
   return `<article class="card post">
     <div class="post-head">${canDel ? `<button class="icon-btn dark small-btn post-more" data-p="${esc(p.id)}" aria-label="Options">⋮</button>` : ""}${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
       <div class="meta"><strong>${esc(memberOf(p.uid).name || p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)}${p.type !== "message" ? " · " + TYPES[p.type] : ""}</small></div></div>
+    ${p.prive && p.type !== "message" ? `<div class="mine-priv">🔒 Détail visible par toi seul · ⋮ pour le rendre public</div>` : ""}
     ${p.type === "matin" ? itemsHTML(p) : ""}
 
     ${p.type === "jour" && p.tasks ? tasksHTML(p) : ""}
@@ -325,6 +357,17 @@ function socialHTML(p) {
         <button class="c-send" aria-label="Envoyer">➤</button></form>
     </div>` : ""}
   </div>`;
+}
+function lockedHTML(p) {
+  const d = new Date(p.ts);
+  const what = { objectif: "a envoyé ses objectifs et son programme", matin: "a fixé ses objectifs du jour", jour: "a fait son bilan du jour", semaine: "a fait son bilan de la semaine" }[p.type] || "a publié";
+  const imgs = p.type === "objectif" ? objHTML(p) : p.photo ? `<img class="post-img" src="${p.photo}" alt="" loading="lazy">` : "";
+  return `<article class="card post">
+    <div class="post-head">${isAdmin() ? `<button class="icon-btn dark small-btn post-more" data-p="${esc(p.id)}" aria-label="Options">⋮</button>` : ""}${avatar(p.name, memberOf(p.uid).role === "admin" ? "admin" : "")}
+      <div class="meta"><strong>${esc(memberOf(p.uid).name || p.name)} ${nameTags(p.uid)}</strong><small>${fmtDate(d)} à ${fmtTime(d)} · ${TYPES[p.type]}</small></div></div>
+    ${imgs || `<div class="locked">🔒 ${esc((memberOf(p.uid).name || p.name).split(" ")[0])} ${what}. Le détail est privé.</div>`}
+    ${p.id && !p._pending ? socialHTML(p) : ""}
+  </article>`;
 }
 function itemsHTML(p) {
   const bilan = posts.find(x => x.uid === p.uid && x.type === "jour" && x.day === p.day && x.tasks);
@@ -396,7 +439,7 @@ function memberRow(m, admin) {
   return `<div class="member">
     ${avatar(m.name, m.role === "admin" ? "admin" : "")}
     <div class="meta"><strong>${esc(m.name)}${m.uid === me.uid ? " (toi)" : ""} ${nameTags(m.uid)}</strong>
-      <small>${s.streak} j 0 scroll · ${s.done} objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}</small>
+      <small>${m.uid === me.uid ? `${s.streak} j 0 scroll · ${s.done} objectif${s.done > 1 ? "s" : ""} atteint${s.done > 1 ? "s" : ""}` : lastJour(m.uid) ? `Dernier bilan : ${fmtDate(new Date(lastJour(m.uid)))} · résultats privés` : "Aucun bilan pour l'instant"}</small>
       ${flags ? `<div class="flags">${flags}</div>` : ""}</div>
     ${admin && m.role !== "admin" ? `<button class="icon-btn dark small-btn" data-m="${m.uid}" aria-label="Actions">⋮</button>` :
       m.role === "admin" ? "" : `<span class="tag ${s.obj ? "ok" : "ko"}">${s.obj ? "Objectif envoyé" : "Sans objectif"}</span>`}</div>`;
@@ -493,12 +536,17 @@ function render() {
   document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
     const id = b.dataset.p, post = posts.find(x => x.id === id) || {};
     const canEdit = post.type === "objectif" && post.uid === me.uid;
-    openMenu([...(canEdit ? [["edit", "Modifier", "Objectifs et programme de la semaine"]] : []), ["del", "Supprimer la publication", "Action définitive"]], k => {
+    const canVis = post.uid === me.uid && post.type !== "message";
+    openMenu([...(canEdit ? [["edit", "Modifier", "Objectifs et programme de la semaine"]] : []),
+      ...(canVis ? [post.prive ? ["pub", "Rendre public", "Tout le cercle verra le détail"] : ["priv", "Rendre privé", "Le détail ne sera visible que par toi"]] : []),
+      ["del", "Supprimer la publication", "Action définitive"]], k => {
       if (k === "edit") { openSheet("objectif", post); return; }
+      if (k === "pub" || k === "priv") { setVisibility(post, k === "pub"); return; }
       openMenu([["yes", "Oui, supprimer", ""], ["no", "Annuler", ""]], k => {
         if (k !== "yes") return;
         deleteDoc(doc(db, "posts", id)).then(() => toast("Publication supprimée")).catch(() => toast("Suppression refusée"));
         if (canEdit && post.week) deleteDoc(doc(db, "prives", me.uid, "semaines", post.week)).catch(() => {});
+        if (post.uid === me.uid) deleteDoc(doc(db, "prives", me.uid, "posts", id)).catch(() => {});
       }, b.parentElement);
     }, b.parentElement);
   });
@@ -805,13 +853,17 @@ function openSheet(type, edit = null) {
   const plan = type === "jour" ? dayPlan(me.uid) : [];
   const matinToday = statsFor(me.uid).matin;
   const report = type === "matin" ? dayPlan(me.uid).filter(t => t.src !== "matin") : [];
+  const VIS = `${type !== "message" ? `<div class="block vis"><span class="label">Qui peut voir le détail ?</span><div class="visg">
+        <button type="button" class="mode" data-vis="prive" aria-pressed="true"><b>🔒 Moi seul</b><small>Le cercle voit seulement que tu as publié</small></button>
+        <button type="button" class="mode" data-vis="public" aria-pressed="false"><b>👥 Tout le cercle</b><small>Tout le monde voit tes réponses et tes résultats</small></button></div>
+        <span class="hint">Tu peux changer après : ⋮ sur ta publication.</span></div>` : ""}`;
   const body = {
     objectif: `<div id="step1"><p class="hint">Pour commencer la semaine, deux choses sont obligatoires : tes objectifs et ton programme. Ce que tu écris est transformé en image : tu choisis de la flouter ou non avant de publier.</p>
       <div class="block"><h3>1. Objectifs de la semaine</h3>${modeChoice("obj", "Comment veux-tu les envoyer ?", "Taper mes objectifs directement")}${photoBlock("obj")}
       <div id="ec-obj"><textarea id="wtxt" maxlength="1500" placeholder="Mes objectifs de la semaine…"></textarea></div></div>
       <div class="block"><h3>2. Programme de la semaine</h3>${modeChoice("prog", "Comment veux-tu l'envoyer ?", "Remplir le tableau horaire")}${photoBlock("prog")}
       <div id="ec-prog">${progGrid}</div></div>
-      <textarea id="txt" maxlength="400" placeholder="Un mot en plus (facultatif)"></textarea></div>
+      <textarea id="txt" maxlength="400" placeholder="Un mot en plus (facultatif)"></textarea>${edit ? "" : VIS}</div>
       <div id="step2" hidden><p class="hint">Voici ce que le cercle verra. Floute si tu ne veux pas qu'on puisse lire. Le texte, lui, reste visible par toi seul.</p>
         ${["obj", "prog"].map(k => `<div class="block pv" data-pv="${k}"><h3>${k === "obj" ? "Objectifs de la semaine" : "Programme de la semaine"}</h3>
           <div class="photo"><canvas></canvas><div class="blurctl"><span>Flou</span><input class="pvblur" type="range" min="0" max="10" value="6" aria-label="Intensité du flou"><span class="bv">6</span></div>
@@ -837,12 +889,13 @@ function openSheet(type, edit = null) {
   }[type];
   wrap.innerHTML = `<div class="panel" role="dialog" aria-label="${TYPES[type]}">
     <div class="sheet-head"><h2>${type === "objectif" ? (edit ? "Modifier mes objectifs et mon programme" : "Objectifs et programme de la semaine") : TYPES[type]}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
-    ${body}<div class="err" id="serr"></div><button class="btn btn-primary" id="send" disabled>${type === "objectif" ? "Continuer" : "Publier"}</button></div>`;
+    ${body}${type !== "objectif" ? VIS : ""}<div class="err" id="serr"></div><button class="btn btn-primary" id="send" disabled>${type === "objectif" ? "Continuer" : "Publier"}</button></div>`;
   $("#layer").appendChild(wrap);
   const close = () => { $("#layer").innerHTML = ""; render(); };
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
   $("#x").onclick = close;
-  let choice = null, matinOk = null, busy = false, mPhotos = [], mVideo = null;
+  let choice = null, matinOk = null, busy = false, mPhotos = [], mVideo = null, prive = true;
+  wrap.querySelectorAll("[data-vis]").forEach(b => b.onclick = () => { prive = b.dataset.vis === "prive"; wrap.querySelectorAll("[data-vis]").forEach(o => o.setAttribute("aria-pressed", o === b)); });
   const modes = { obj: "ecrire", prog: "ecrire", matin: "ecrire" }, imgs = {};
   const send = $("#send");
   const items = () => [...wrap.querySelectorAll(".item")].map(i => i.value.trim()).filter(Boolean);
@@ -961,7 +1014,9 @@ function openSheet(type, edit = null) {
       const secret = { objText: modes.obj === "ecrire" ? $("#wtxt").value.trim() : "", prog: modes.prog === "ecrire" ? progRows().filter(r => r.from || r.to || r.cells.some(Boolean)) : [], ts: Date.now() };
       setDoc(doc(db, "prives", me.uid, "semaines", week), secret).catch(() => toast("Ton texte n'a pas pu être gardé. Vérifie ta connexion."));
       if (edit) {
-        updateDoc(doc(db, "posts", edit.id), { photo, progPhoto, text: $("#txt").value.trim(), edited: Date.now(), objText: deleteField(), prog: deleteField() })
+        const t = $("#txt").value.trim();
+        if (edit.prive) setDoc(doc(db, "prives", me.uid, "posts", edit.id), { text: t }, { merge: true }).catch(() => {});
+        updateDoc(doc(db, "posts", edit.id), { photo, progPhoto, edited: Date.now(), objText: deleteField(), prog: deleteField(), ...(edit.prive ? {} : { text: t }) })
           .then(() => toast("Modifications enregistrées")).catch(() => toast("Modification refusée. Vérifie ta connexion."));
         $("#layer").innerHTML = ""; render(); return;
       }
@@ -990,7 +1045,7 @@ function openSheet(type, edit = null) {
     }
     if (type === "semaine") p.atteint = choice;
     $("#layer").innerHTML = "";
-    savePost(p);
+    savePost(p, type !== "message" && prive);
     if (showV) showVerdict(...showV); else render();
   };
 }

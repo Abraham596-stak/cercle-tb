@@ -40,9 +40,12 @@ service cloud.firestore {
         && (!('photos' in request.resource.data) || admin())
         && (!('video' in request.resource.data) || admin());
       // J'aime : chacun ne peut ajouter ou retirer que son propre j'aime
-      // L'auteur peut modifier ses objectifs et son programme (images seulement)
-      allow update: if (valide() && resource.data.uid == request.auth.uid && resource.data.type == 'objectif'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photo', 'progPhoto', 'text', 'edited', 'objText', 'prog', 'prive'])
+      // L'auteur peut modifier ses objectifs (images) et rendre sa publication publique ou privée
+      allow update: if (valide() && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['photo', 'progPhoto', 'text', 'edited', 'objText', 'prog', 'prive',
+             'items', 'tasks', 'doneIdx', 'itemsTotal', 'doneItems', 'zero', 'matinOk', 'atteint'])
+        && (!('items' in request.resource.data) || request.resource.data.items.size() <= 8)
+        && (!('tasks' in request.resource.data) || request.resource.data.tasks.size() <= 80)
         && !('objText' in request.resource.data) && !('prog' in request.resource.data)
         && (!('photo' in request.resource.data) || request.resource.data.photo.size() <= 400000)
         && (!('progPhoto' in request.resource.data) || request.resource.data.progPhoto.size() <= 400000)
