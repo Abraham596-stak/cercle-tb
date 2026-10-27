@@ -111,18 +111,19 @@ if (jSem === 0 && heure >= 9 && heure < 20)
 for (const m of membres) {
   if ((m.approvedAt || 0) > NOW - 6 * 3600e3) continue; // laisse quelques heures aux nouveaux
   const st = assist[m.uid] || {};
-  for (const it of items) {
-    if (aFait(m, it)) continue;
-    const rec = st[it.k] || { n: 0 };
-    if (rec.last === hourKey) continue;
-    const texte = it.texte(m, rec.n);
-    await inbox(m, texte);
-    await push(m.uid, `Assistante · ${it.titre}`, texte.replace(/https:\S+/g, "").trim(), `./?ouvrir=${it.type}`, "relance-" + it.type);
-    if (rec.n === 0 || rec.n === 2) await mail(m, rec.n === 0 ? `${prenom(m)}, ${it.titre.toLowerCase()} : pas encore envoyé` : `Rappel : ${it.titre.toLowerCase()} toujours pas envoyé`,
-      `<p>${texte.replace(/https:\S+/g, "").trim()}</p>${btn(`${APP}/?ouvrir=${it.type}`, "Ouvrir le Cercle TB")}`, texte);
-    st[it.k] = { n: rec.n + 1, last: hourKey };
-    if (!DRY) await assistRef(m.uid).set({ [it.k]: st[it.k] }, { merge: true });
-  }
+  const dus = items.filter(it => !aFait(m, it) && (st[it.k] || {}).last !== hourKey);
+  if (!dus.length) continue;
+  // un seul message par heure, même s'il manque plusieurs choses
+  const parties = dus.map(it => it.texte(m, (st[it.k] || { n: 0 }).n));
+  const texte = parties.join("\n\n");
+  await inbox(m, texte);
+  await push(m.uid, `Assistante · ${dus.map(it => it.titre).join(" · ")}`, parties.map(t => t.replace(/https:\S+/g, "").trim()).join(" "), `./?ouvrir=${dus[0].type}`, "relance");
+  if (dus.some(it => [0, 2].includes((st[it.k] || { n: 0 }).n))) await mail(m,
+    dus.length > 1 ? `${prenom(m)}, ${dus.length} choses à envoyer dans le Cercle TB` : `${prenom(m)}, ${dus[0].titre.toLowerCase()} : pas encore envoyé`,
+    dus.map((it, i) => `<p>${parties[i].replace(/https:\S+/g, "").trim()}</p>${btn(`${APP}/?ouvrir=${it.type}`, it.titre)}`).join(""), texte);
+  const maj = {};
+  dus.forEach(it => { maj[it.k] = { n: (st[it.k] || { n: 0 }).n + 1, last: hourKey }; });
+  if (!DRY) await assistRef(m.uid).set(maj, { merge: true });
 }
 
 // ---------- 2 et 3. installation, puis un guide par jour ----------
