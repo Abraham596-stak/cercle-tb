@@ -19,7 +19,7 @@ const db = admin.firestore();
 const FV = admin.firestore.FieldValue;
 
 // ---------- heure locale (UTC+1) ----------
-const NOW = Date.now();
+const NOW = process.env.FAKE_NOW ? Date.parse(process.env.FAKE_NOW) : Date.now();
 const L = new Date(NOW + 3600e3);
 const key = d => d.toISOString().slice(0, 10);
 const jour = key(L), heure = L.getUTCHours(), minute = L.getUTCMinutes(), jSem = L.getUTCDay(); // 0 = dimanche
