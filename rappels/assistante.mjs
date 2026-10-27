@@ -58,7 +58,7 @@ async function inbox(m, text) {
   await b.commit();
 }
 const btn = (url, label) => `<p style="margin:22px 0"><a href="${url}" style="background:#1D9BF0;color:#fff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:700;display:inline-block">${label}</a></p>`;
-const imgs = list => list.map((src, i) => `<p style="margin:16px 0 4px;font-weight:700;color:#0B1F3F">Étape ${i + 1}</p><img src="${APP}/guide/${src}.png" alt="Étape ${i + 1}" width="300" style="width:300px;max-width:100%;border:1px solid #E4E6EB;border-radius:12px;display:block">`).join("");
+const imgs = list => list.map((src, i) => `<p style="margin:16px 0 4px;font-weight:700;color:#0B1F3F">Étape ${i + 1}</p><img src="${APP}/guide/${src}.jpg" alt="Étape ${i + 1}" width="300" style="width:300px;max-width:100%;border:1px solid #E4E6EB;border-radius:12px;display:block">`).join("");
 async function mail(m, subject, html, text) {
   if (!mailer || !m.email) return;
   mails++; if (DRY) { note(`[mail] ${m.name} · ${subject}`); return; }

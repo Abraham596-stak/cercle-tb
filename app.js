@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "21";
+const APP_VERSION = "22";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -794,7 +794,7 @@ const guideOpen = new Set(["installer"]);
 function guideView() {
   return `${header()}<main class="page"><section class="card pad-in"><h2 class="g-title">Guide en images</h2><p class="hint">Chaque étape, avec une flèche rouge sur l'endroit où appuyer. Touche un titre pour l'ouvrir.</p></section>
   ${GUIDE.map(([k, t, imgs]) => `<details class="card guide" data-g="${k}" ${guideOpen.has(k) ? "open" : ""}><summary>${t}</summary>
-    <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.png" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption></figure>`).join("")}</div></details>`).join("")}
+    <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.jpg" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption></figure>`).join("")}</div></details>`).join("")}
   </main>`;
 }
 function openWarn(m) {
