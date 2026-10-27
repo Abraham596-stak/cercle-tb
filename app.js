@@ -3,7 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   updateProfile, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, updateDoc, deleteDoc, getDocs, Bytes,
-  onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove, deleteField } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  onSnapshot, query, orderBy, limit, arrayUnion, arrayRemove, deleteField, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getMessaging, getToken, isSupported } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
 
 if (location.hostname.endsWith("github.io")) location.replace("https://cercle-tb.web.app/" + location.search);
@@ -23,7 +23,7 @@ const BADGES = ["Discipliné(e)", "Zéro scroll", "Objectifs tenus", "Exemple du
 const INACTIF_JOURS = 14;
 
 let me = null, myDoc = undefined, posts = [], members = [], view = "fil", filter = "tout", online = navigator.onLine;
-let priv = {}, privPosts = {}, rawPosts = [], comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
+let priv = {}, privPosts = {}, rawPosts = [], notifs = [], notifMeta = {}, convo = null, msgs = [], convos = [], chatUid = null, chatUnsub = null, comments = [], openCom = new Set(), mediaUrls = {}, mediaPlaying = false;
 let unsub = [], dataUnsub = [], swReg = null, installEvt = null, autoChecked = false;
 const isAdmin = () => !!me && me.email.toLowerCase() === ADMIN_EMAIL;
 
@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "20";
+const APP_VERSION = "21";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -113,7 +113,8 @@ function loginView(mode = "in") {
     </div>
     <form id="lf" class="login-card">
       <h2>${create ? "Créer un compte" : "Se connecter"}</h2>
-      ${create ? `<input id="lname" class="field" type="text" placeholder="Prénom" required maxlength="30" autocomplete="given-name">` : ""}
+      ${create ? `<input id="lname" class="field" type="text" placeholder="Nom et prénom" required maxlength="40" autocomplete="name">
+      <input id="lwa" class="field" type="tel" placeholder="Numéro WhatsApp (avec l'indicatif, ex. +229…)" required maxlength="20" autocomplete="tel">` : ""}
       <input id="lmail" class="field" type="email" placeholder="Adresse e-mail" required autocomplete="email">
       <div class="pw"><input id="lpass" class="field" type="password" placeholder="Mot de passe" required minlength="6" autocomplete="${create ? "new-password" : "current-password"}">
         <button type="button" class="eye" id="eye" aria-label="Afficher le mot de passe">${EYE}</button></div>
@@ -142,7 +143,9 @@ function loginView(mode = "in") {
     const mail = $("#lmail").value.trim(), pass = $("#lpass").value;
     try {
       if (create) {
-        const name = $("#lname").value.trim();
+        const name = $("#lname").value.trim(), wa = $("#lwa").value.replace(/[^\d+]/g, "");
+        if (wa.replace(/\D/g, "").length < 8) { $("#lerr").textContent = "Écris ton numéro WhatsApp complet, avec l'indicatif."; btn.disabled = false; return; }
+        pendingWa = wa;
         const cred = await createUserWithEmailAndPassword(auth, mail, pass);
         pendingName = name;
         await updateProfile(cred.user, { displayName: name });
@@ -153,8 +156,8 @@ function loginView(mode = "in") {
 }
 
 /* ---------- données ---------- */
-let pendingName = null;
-function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; priv = {}; privPosts = {}; rawPosts = []; posts = []; members = []; comments = []; }
+let pendingName = null, pendingWa = null;
+function stopData() { dataUnsub.forEach(u => u()); dataUnsub = []; priv = {}; privPosts = {}; rawPosts = []; notifs = []; notifMeta = {}; convo = null; msgs = []; convos = []; if (chatUnsub) chatUnsub(); chatUnsub = null; chatUid = null; posts = []; members = []; comments = []; }
 function startData() {
   if (dataUnsub.length) return;
   dataUnsub.push(onSnapshot(query(collection(db, "posts"), orderBy("ts", "desc"), limit(150)), { includeMetadataChanges: true }, snap => {
@@ -165,6 +168,15 @@ function startData() {
   dataUnsub.push(onSnapshot(collection(db, "prives", me.uid, "posts"), snap => { privPosts = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); mergePosts(); render(); }, () => {}));
   // Ce que j'ai écrit (objectifs, programme) : visible par moi seul
   dataUnsub.push(onSnapshot(collection(db, "prives", me.uid, "semaines"), snap => { priv = Object.fromEntries(snap.docs.map(d => [d.id, d.data()])); render(); }, () => {}));
+  // Notifications et messages privés
+  dataUnsub.push(onSnapshot(query(collection(db, "notifs", me.uid, "items"), orderBy("ts", "desc"), limit(80)), snap => { notifs = snap.docs.map(d => ({ id: d.id, ...d.data() })); render(); }, () => {}));
+  dataUnsub.push(onSnapshot(doc(db, "notifs", me.uid), snap => { notifMeta = snap.exists() ? snap.data() : {}; render(); }, () => {}));
+  if (isAdmin()) dataUnsub.push(onSnapshot(query(collection(db, "convos"), orderBy("lastTs", "desc")), snap => { convos = snap.docs.map(d => ({ id: d.id, ...d.data() })); render(); }, () => {}));
+  else {
+    dataUnsub.push(onSnapshot(doc(db, "convos", me.uid), snap => { convo = snap.exists() ? snap.data() : null; render(); }, () => {}));
+    dataUnsub.push(onSnapshot(query(collection(db, "convos", me.uid, "msgs"), orderBy("ts", "asc"), limit(300)), { includeMetadataChanges: true }, snap => {
+      msgs = snap.docs.map(d => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites })); render(); }, () => {}));
+  }
   dataUnsub.push(onSnapshot(collection(db, "members"), snap => { members = snap.docs.map(d => d.data()); render(); }, () => {}));
   dataUnsub.push(onSnapshot(query(collection(db, "comments"), orderBy("ts", "asc"), limit(1000)), { includeMetadataChanges: true }, snap => {
     comments = snap.docs.map(d => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites }));
@@ -181,7 +193,7 @@ function start(user) {
   unsub.push(onSnapshot(doc(db, "members", user.uid), snap => {
     if (!snap.exists()) {
       const name = auth.currentUser?.displayName || pendingName || me.name;
-      const base = { uid: me.uid, name, email: me.email, joined: Date.now(), warnings: [], badges: [] };
+      const base = { uid: me.uid, name, email: me.email, joined: Date.now(), warnings: [], badges: [], ...(pendingWa ? { whatsapp: pendingWa } : {}) };
       setDoc(doc(db, "members", me.uid), isAdmin() ? { ...base, status: "approved", role: "admin" } : { ...base, status: "pending", notified: false })
         .catch(() => toast("Impossible d'envoyer ta demande. Vérifie ta connexion."));
       myDoc = { ...base, status: isAdmin() ? "approved" : "pending" };
@@ -204,6 +216,24 @@ onAuthStateChanged(auth, u => {
 
 // Mes publications privées : je vois leur détail, les autres non
 function mergePosts() { posts = rawPosts.map(p => p.uid === me.uid && privPosts[p.id] ? { ...p, ...privPosts[p.id] } : p); }
+/* ---------- notifications et messages ---------- */
+function notify(uid, kind, text, postId = "") {
+  if (!uid || uid === me.uid) return;
+  const ts = Date.now();
+  setDoc(doc(collection(db, "notifs", uid, "items")), { kind, text: text.slice(0, 300), from: me.uid, fromName: me.name, postId, ts }).catch(() => {});
+  setDoc(doc(db, "notifs", uid), { lastTs: ts, lastText: text.slice(0, 200) }, { merge: true }).catch(() => {});
+}
+const unreadNotifs = () => notifs.filter(n => n.ts > (notifMeta.seen || 0)).length;
+const convoUnread = c => c && (isAdmin() ? c.lastFrom === c.uid && c.lastTs > (c.seenAdmin || 0) : c.lastFrom !== me.uid && c.lastTs > (c.seenMember || 0));
+const unreadMsgs = () => isAdmin() ? convos.filter(convoUnread).length : convoUnread(convo) ? 1 : 0;
+async function sendMsg(uid, text, from) {
+  const ts = Date.now(), m = memberOf(uid);
+  const b = writeBatch(db);
+  b.set(doc(collection(db, "convos", uid, "msgs")), { from, text, ts });
+  b.set(doc(db, "convos", uid), { uid, name: m.name || me.name, last: text.slice(0, 140), lastTs: ts, lastFrom: from, ...(from === "admin" ? { seenAdmin: ts } : { seenMember: ts }) }, { merge: true });
+  return b.commit();
+}
+const SENDER = f => f === "admin" ? ADMIN_NAME : f === "assistante" ? "Assistante du cercle" : null;
 const PRIV_FIELDS = ["items", "tasks", "doneIdx", "itemsTotal", "doneItems", "zero", "matinOk", "atteint", "text"];
 const lockedFor = p => p.prive && p.uid !== me.uid;
 
@@ -349,14 +379,23 @@ function socialHTML(p) {
       <button class="act" data-com="${esc(p.id)}">${BUBBLE}<span>Commenter${cs.length ? ` · ${cs.length}` : ""}</span></button>
     </div>
     ${open ? `<div class="comments">
-      ${cs.map(c => `<div class="comment">${avatar(memberOf(c.uid).name || c.name, "sm")}
-        <div class="bubble"><strong>${esc(memberOf(c.uid).name || c.name)}</strong> ${nameTags(c.uid)}<p>${esc(c.text)}</p>
-        <small>${fmtDate(new Date(c.ts))} à ${fmtTime(new Date(c.ts))}${c._pending ? " · envoi…" : ""}${(c.uid === me.uid || isAdmin()) && !c._pending ? ` · <button class="link-sm" data-cdel="${esc(c.id)}">Supprimer</button>` : ""}</small></div></div>`).join("")}
+      ${cs.filter(c => !c.parentId || !cs.some(x => x.id === c.parentId)).map(c => commentHTML(c, cs.filter(r => r.parentId === c.id))).join("")}
       <form class="c-form" data-cform="${esc(p.id)}">${avatar(me.name, "sm")}
-        <input class="c-input" id="ci-${esc(p.id)}" maxlength="500" placeholder="Écris un commentaire…" autocomplete="off">
+        <input class="c-input" id="ci-${esc(p.id)}" maxlength="500" placeholder="${replyTo[p.id] ? "Répondre à " + esc(firstName(memberOf(replyTo[p.id].uid).name || replyTo[p.id].name)) + "…" : "Écris un commentaire…"}" autocomplete="off">
+        ${replyTo[p.id] ? `<button type="button" class="link-sm" data-rcancel="${esc(p.id)}" aria-label="Annuler la réponse">×</button>` : ""}
         <button class="c-send" aria-label="Envoyer">➤</button></form>
     </div>` : ""}
   </div>`;
+}
+const firstName = n => String(n || "").split(" ")[0];
+const replyTo = {};
+function commentHTML(c, replies = [], isReply = false) {
+  const likes = c.likes || [], liked = likes.includes(me.uid), nm = memberOf(c.uid).name || c.name;
+  return `<div class="comment ${isReply ? "reply" : ""}">${avatar(nm, "sm")}
+    <div class="cbody"><div class="bubble"><strong>${esc(nm)}</strong> ${nameTags(c.uid)}<p>${esc(c.text)}</p>
+      ${likes.length ? `<span class="clikes">${HEART}${likes.length}</span>` : ""}</div>
+      <small>${fmtDate(new Date(c.ts))} à ${fmtTime(new Date(c.ts))}${c._pending ? " · envoi…" : ` · <button class="link-sm ${liked ? "on" : ""}" data-clike="${esc(c.id)}">J'aime</button> · <button class="link-sm" data-reply="${esc(c.id)}">Répondre</button>`}${(c.uid === me.uid || isAdmin()) && !c._pending ? ` · <button class="link-sm" data-cdel="${esc(c.id)}">Supprimer</button>` : ""}</small>
+      ${replies.map(r => commentHTML(r, [], true)).join("")}</div></div>`;
 }
 function lockedHTML(p) {
   const d = new Date(p.ts);
@@ -377,13 +416,99 @@ function itemsHTML(p) {
 function tasksHTML(p) {
   return `<ul class="day-items">${p.tasks.map((t, i) => { const c = (p.doneIdx || []).includes(i) ? "ok" : "ko"; return `<li class="${c}"><span class="box">${c === "ok" ? "✓" : "✕"}</span>${t.time ? `<b class="tt">${esc(t.time)}</b>` : ""}${esc(t.t)}</li>`; }).join("")}</ul>`;
 }
+function tabs() {
+  const n = unreadNotifs(), m = unreadMsgs();
+  const t = (k, icon, label, badge = 0) => `<button class="tab ${view === k || (k === "messages" && view === "chat") ? "on" : ""}" data-tab="${k}" aria-label="${label}">${icon}${badge ? `<span class="tbadge">${badge > 9 ? "9+" : badge}</span>` : ""}<small>${label}</small></button>`;
+  return `<nav class="tabs">${t("fil", ICON.home, "Accueil")}${t("messages", ICON.chat, "Messages", m)}${t("notifs", ICON.bell, "Notifications", n)}${t("membres", ICON.people, "Membres")}${t("guide", ICON.book, "Guide")}</nav>`;
+}
+const ICON = {
+  home: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>`,
+  chat: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3C6.5 3 2 6.9 2 11.7c0 2.6 1.3 4.9 3.4 6.5L5 22l3.9-2c1 .3 2 .4 3.1.4 5.5 0 10-3.9 10-8.7S17.5 3 12 3z"/></svg>`,
+  bell: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0"/></svg>`,
+  people: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.6c2.6.2 4.4 1.9 5 4.9"/></svg>`,
+  book: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4zM20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/></svg>`
+};
+function messagesView() {
+  if (!isAdmin()) return chatView(me.uid);
+  const list = members.filter(m => m.status === "approved" && m.role !== "admin");
+  const byUid = Object.fromEntries(convos.map(c => [c.uid, c]));
+  const sorted = [...list].sort((a, b) => ((byUid[b.uid] || {}).lastTs || 0) - ((byUid[a.uid] || {}).lastTs || 0));
+  return `${header()}<main class="page">
+  <section class="card pad-in"><button class="btn btn-primary" id="bcast">✉️ Écrire le même message à tous les membres</button>
+    <p class="hint">Chaque membre le reçoit dans sa messagerie privée, avec une notification.</p></section>
+  <div class="section-head"><h2>Discussions</h2></div>
+  <section class="card list">${sorted.map(m => { const c = byUid[m.uid], un = convoUnread(c);
+    return `<button class="member convo-row ${un ? "unread" : ""}" data-chat="${m.uid}">${avatar(m.name)}
+      <div class="meta"><strong>${esc(m.name)}</strong><small>${c ? `${c.lastFrom === "admin" ? "Toi : " : c.lastFrom === "assistante" ? "Assistante : " : ""}${esc(c.last || "")} · ${fmtTime(new Date(c.lastTs))}` : "Aucun message"}</small></div>
+      ${un ? `<span class="dot-un"></span>` : ""}</button>`; }).join("") || `<div class="empty">Aucun membre pour l'instant.</div>`}</section></main>`;
+}
+function chatView(uid) {
+  const admin = isAdmin(), m = memberOf(uid);
+  const list = admin ? chatMsgs : msgs;
+  const title = admin ? m.name : `${ADMIN_NAME}`;
+  return `${header()}<main class="page chat">
+  <div class="chat-head card">${admin ? `<button class="icon-btn dark small-btn" id="chat-back" aria-label="Retour">‹</button>` : ""}${avatar(title, admin ? "" : "admin")}
+    <div class="meta"><strong>${esc(title)}</strong><small>${admin ? esc(m.email || "") : "Fondateur · et l'assistante du cercle"}</small></div>
+    ${admin && m.whatsapp ? `<a class="btn btn-secondary btn-sm" href="${waLink(m.whatsapp, "")}" target="_blank" rel="noopener">WhatsApp</a>` : ""}</div>
+  <div class="msgs" id="msgs">${list.map(x => { const mine = admin ? x.from === "admin" : x.from === me.uid;
+    return `<div class="msg ${mine ? "me" : ""} ${x.from === "assistante" ? "bot" : ""}">${!mine && SENDER(x.from) ? `<span class="who">${SENDER(x.from)}</span>` : ""}
+      <div class="mb">${linkify(x.text)}</div><small>${fmtDate(new Date(x.ts))} à ${fmtTime(new Date(x.ts))}${x._pending ? " · envoi…" : ""}</small></div>`; }).join("") ||
+    `<div class="empty">${admin ? "Écris ton premier message à " + esc(firstName(m.name)) + "." : "Ici tu reçois les messages de " + ADMIN_NAME + " et de l'assistante. Tu peux répondre."}</div>`}</div>
+  <form class="c-form chat-form" id="chat-form"><input class="c-input" id="chat-in" maxlength="1000" placeholder="Écris un message…" autocomplete="off"><button class="c-send" aria-label="Envoyer">➤</button></form>
+  </main>`;
+}
+let chatMsgs = [];
+function openChat(uid) {
+  if (chatUnsub) chatUnsub();
+  chatUid = uid; chatMsgs = []; view = "chat";
+  chatUnsub = onSnapshot(query(collection(db, "convos", uid, "msgs"), orderBy("ts", "asc"), limit(300)), { includeMetadataChanges: true }, snap => {
+    chatMsgs = snap.docs.map(d => ({ id: d.id, ...d.data(), _pending: d.metadata.hasPendingWrites })); render(); }, () => {});
+  render();
+}
+const linkify = t => esc(t).replace(/(https:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, "<br>");
+const waLink = (num, text) => `https://wa.me/${String(num).replace(/\D/g, "")}${text ? "?text=" + encodeURIComponent(text) : ""}`;
+const NICON = { like: "❤️", clike: "❤️", comment: "💬", reply: "↩️", maj: "✨", assistante: "🤖", admin: "📣" };
+function notifsView() {
+  const seen = notifMeta.seen || 0;
+  return `${header()}<main class="page"><div class="section-head"><h2>Notifications</h2></div>
+  <section class="card list">${notifs.map(n => `<button class="member notif ${n.ts > seen ? "unread" : ""}" data-notif="${esc(n.id)}">
+    <span class="nicon">${NICON[n.kind] || "🔔"}</span><div class="meta"><strong class="ntext">${esc(n.text)}</strong><small>${fmtDate(new Date(n.ts))} à ${fmtTime(new Date(n.ts))}</small></div>
+    ${n.ts > seen ? `<span class="dot-un"></span>` : ""}</button>`).join("") || `<div class="empty">Aucune notification pour l'instant.</div>`}</section></main>`;
+}
+function openBroadcast() {
+  $("#layer").innerHTML = "";
+  const wrap = document.createElement("div"); wrap.className = "sheet";
+  const list = members.filter(m => m.status === "approved" && m.role !== "admin");
+  wrap.innerHTML = `<div class="panel" role="dialog" aria-label="Message à tous">
+    <div class="sheet-head"><h2>Message à tous les membres</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    <p class="hint">${list.length} membre${list.length > 1 ? "s" : ""} le recevr${list.length > 1 ? "ont" : "a"} dans sa messagerie privée. Écris {prénom} pour mettre le prénom de chacun.</p>
+    <textarea id="txt" maxlength="1000" placeholder="Bonjour {prénom}, …"></textarea>
+    <button class="btn btn-primary" id="send">Envoyer à tous</button></div>`;
+  $("#layer").appendChild(wrap);
+  const close = () => { $("#layer").innerHTML = ""; render(); };
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); }); $("#x").onclick = close;
+  $("#send").onclick = async () => {
+    const t = $("#txt").value.trim(); if (!t) return;
+    $("#send").disabled = true;
+    try {
+      for (let i = 0; i < list.length; i += 200) {
+        const b = writeBatch(db), ts = Date.now();
+        list.slice(i, i + 200).forEach(m => { const text = t.replace(/\{pr[ée]nom\}/gi, firstName(m.name));
+          b.set(doc(collection(db, "convos", m.uid, "msgs")), { from: "admin", text, ts, groupe: true });
+          b.set(doc(db, "convos", m.uid), { uid: m.uid, name: m.name, last: text.slice(0, 140), lastTs: ts, lastFrom: "admin", seenAdmin: ts }, { merge: true }); });
+        await b.commit();
+      }
+      toast(`Message envoyé à ${list.length} membre${list.length > 1 ? "s" : ""}`); close();
+    } catch (e) { $("#send").disabled = false; toast("Envoi refusé. Vérifie ta connexion."); }
+  };
+}
 function header() {
   return `<header class="topbar"><div class="topbar-in">
     <div class="brandbox"><div class="wordmark small">cercle tb</div><div class="school">École de discipline de ${ADMIN_NAME}</div></div>
     <div class="top-right">
       <span class="net ${online ? "" : "off"}">${online ? "En ligne" : "Hors ligne"}</span>
       <button class="icon-btn" id="menu" aria-label="Menu">⋮</button>
-    </div></div></header>`;
+    </div></div>${tabs()}</header>`;
 }
 function notifBanner() {
   if (!("Notification" in window) || Notification.permission === "granted") return "";
@@ -408,7 +533,10 @@ function filView() {
   const labels = { tout: "Toutes les publications", objectif: "Objectifs", matin: "Objectifs du jour", jour: "Bilans du jour", semaine: "Bilans de semaine", message: "Messages", moi: "Mes publications" };
   const warns = (myDoc && myDoc.warnings) || [];
   const pend = members.filter(m => m.status === "pending").length;
+  const needWa = !myDoc.whatsapp && !isAdmin();
   return `${header()}${ticker()}<main class="page">${notifBanner()}
+  ${needWa ? `<form class="card banner wa-ask" id="wa-form"><span>Ajoute ton numéro WhatsApp pour que ${ADMIN_NAME} puisse te joindre.</span>
+    <div class="row"><input class="field" id="wa-in" type="tel" placeholder="+229…" maxlength="20"><button class="btn btn-primary btn-sm">OK</button></div></form>` : ""}
   ${isAdmin() && pend ? `<button class="card banner admin-alert" id="go-dem"><span><b>${pend} demande${pend > 1 ? "s" : ""}</b> en attente de ta validation</span><span class="chev">›</span></button>` : ""}
   ${warns.length ? `<div class="card warn"><b>Mise en garde de ${ADMIN_NAME}</b>${warns.slice(-2).map(w => `<p>${esc(w.text)}<small> · ${fmtDate(new Date(w.ts))}</small></p>`).join("")}</div>` : ""}
   <section class="card composer" id="composer">
@@ -500,23 +628,34 @@ function render() {
     return;
   }
   const admin = isAdmin();
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (standalone && !myDoc.installed && !me.instSent) { me.instSent = true; updateDoc(doc(db, "members", me.uid), { installed: true, installedAt: Date.now() }).catch(() => {}); }
   if (view === "demandes" && !admin) view = "fil";
-  $("#app").innerHTML = view === "membres" ? membresView() : view === "demandes" ? demandesView() : filView();
+  if (view === "chat" && !admin) view = "messages";
+  const V = { membres: membresView, demandes: demandesView, messages: messagesView, notifs: notifsView, chat: () => chatView(chatUid), guide: guideView, avis: avisView };
+  $("#app").innerHTML = (V[view] || filView)();
+  bindTabs();
   const pend = members.filter(m => m.status === "pending").length;
   $("#menu").onclick = () => openMenu([
     ["fil", "Fil du groupe", "Objectifs et bilans de tous"],
     ["membres", "Membres", admin ? "Mises en garde, badges, blocage" : "Qui est dans le cercle"],
     ...(admin ? [["demandes", `Demandes d'accès${pend ? ` (${pend})` : ""}`, "Valider les nouveaux membres"]] : []),
+    ["guide", "Guide en images", "Installer, s'inscrire, publier, faire ses bilans"],
+    ["avis", admin ? "Avis des membres" : "Donner mon avis", admin ? "Ce que les membres pensent de l'app" : "Ce qui te plaît, ce qui manque"],
     ["notif", "Activer les rappels", "23h30 et le dimanche"],
     ["install", "Installer l'application", "Icône sur l'écran d'accueil"],
     ["out", "Se déconnecter", esc(me.email)]
   ], k => {
-    if (k === "fil" || k === "membres" || k === "demandes") { view = k; render(); scrollTo(0, 0); }
+    if (k === "fil" || k === "membres" || k === "demandes" || k === "guide") { view = k; render(); scrollTo(0, 0); }
+    if (k === "avis") { if (admin) { view = "avis"; render(); scrollTo(0, 0); } else openAvis(); }
     if (k === "notif") enableNotifs();
     if (k === "install") install();
     if (k === "out") signOut(auth);
   }, $("#menu").parentElement, view);
   if ($("#notif")) $("#notif").onclick = enableNotifs;
+  if ($("#wa-form")) $("#wa-form").onsubmit = e => { e.preventDefault(); const v = $("#wa-in").value.replace(/[^\d+]/g, "");
+    if (v.replace(/\D/g, "").length < 8) { toast("Numéro incomplet : mets l'indicatif."); return; }
+    updateDoc(doc(db, "members", me.uid), { whatsapp: v }).then(() => toast("Numéro enregistré")).catch(() => toast("Enregistrement refusé.")); };
   document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => openSheet(b.dataset.open));
   Object.entries(drafts).forEach(([id, v]) => { const i = document.getElementById(id); if (i) i.value = v; });
   if (focusId && document.getElementById(focusId)) document.getElementById(focusId).focus();
@@ -561,12 +700,17 @@ function render() {
     const m = memberOf(b.dataset.m), blocked = m.status === "blocked";
     const has = m.badges || [];
     openMenu([
+      ["msg", "Message privé", "Dans sa messagerie de l'app"],
+      ...(m.whatsapp ? [["wa", "Écrire sur WhatsApp", esc(m.whatsapp)]] : [["nowa", "WhatsApp", "Numéro pas encore renseigné"]]),
       ["warn", "Mettre en garde", "Message visible uniquement par ce membre"],
       ["badge", "Donner un badge", has.length ? `Actuel : ${esc(has.join(", "))}` : "Récompenser sa discipline"],
       ...(has.length ? [["unbadge", "Retirer les badges", ""]] : []),
       ...((m.warnings || []).length ? [["clear", "Effacer les mises en garde", ""]] : []),
       [blocked ? "unblock" : "block", blocked ? "Débloquer" : "Bloquer l'accès", blocked ? "Le membre revient dans le cercle" : "Le membre ne voit plus le cercle"]
     ], k => {
+      if (k === "msg") openChat(m.uid);
+      if (k === "wa") window.open(waLink(m.whatsapp, `Bonjour ${firstName(m.name)}, c'est ${ADMIN_NAME} du Cercle TB. `), "_blank");
+      if (k === "nowa") toast("Ce membre n'a pas encore ajouté son numéro.");
       if (k === "warn") openWarn(m);
       if (k === "badge") openMenu(BADGES.filter(x => !has.includes(x)).map(x => [x, x, ""]), x => setMember(m.uid, { badges: arrayUnion(x) }).then(() => toast("Badge donné")), b.parentElement);
       if (k === "unbadge") setMember(m.uid, { badges: [] });
@@ -575,6 +719,83 @@ function render() {
       if (k === "unblock") setMember(m.uid, { status: "approved", blockedReason: null, unblockedAt: Date.now() });
     }, b.parentElement);
   });
+}
+function bindTabs() {
+  document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { goTab(b.dataset.tab); });
+  if (view === "notifs" && unreadNotifs()) setDoc(doc(db, "notifs", me.uid), { seen: Date.now() }, { merge: true }).catch(() => {});
+  const markRead = c => { if (convoUnread(c)) setDoc(doc(db, "convos", c.uid), isAdmin() ? { seenAdmin: Date.now() } : { seenMember: Date.now() }, { merge: true }).catch(() => {}); };
+  if (view === "messages" && !isAdmin() && convo) markRead({ ...convo, uid: me.uid });
+  if (view === "chat" && isAdmin()) { const c = convos.find(x => x.uid === chatUid); if (c) markRead(c); }
+  document.querySelectorAll("[data-g]").forEach(d => d.ontoggle = () => d.open ? guideOpen.add(d.dataset.g) : guideOpen.delete(d.dataset.g));
+  document.querySelectorAll("[data-chat]").forEach(b => b.onclick = () => openChat(b.dataset.chat));
+  if ($("#chat-back")) $("#chat-back").onclick = () => { if (chatUnsub) chatUnsub(); chatUnsub = null; view = "messages"; render(); };
+  if ($("#bcast")) $("#bcast").onclick = openBroadcast;
+  const box = $("#msgs"); if (box) box.lastElementChild?.scrollIntoView({ block: "end" });
+  if ($("#chat-form")) $("#chat-form").onsubmit = e => {
+    e.preventDefault(); const i = $("#chat-in"), t = i.value.trim(); if (!t) return; i.value = "";
+    const uid = isAdmin() ? chatUid : me.uid;
+    sendMsg(uid, t, isAdmin() ? "admin" : me.uid).catch(() => toast("Message refusé. Vérifie ta connexion."));
+  };
+  document.querySelectorAll("[data-notif]").forEach(b => b.onclick = () => {
+    const n = notifs.find(x => x.id === b.dataset.notif); if (!n) return;
+    if (n.postId) { view = "fil"; filter = "tout"; openCom.add(n.postId); render(); setTimeout(() => document.querySelector(`[data-com="${n.postId}"]`)?.scrollIntoView({ block: "center" }), 50); }
+    else if (n.kind === "assistante" || n.kind === "admin") goTab("messages");
+    else if (n.kind === "maj") goTab("guide");
+  });
+}
+function goTab(k) { if (k !== "chat" && chatUnsub && k !== "messages") { chatUnsub(); chatUnsub = null; } view = k; render(); scrollTo(0, 0); }
+function openAvis(kind = "semaine") {
+  $("#layer").innerHTML = "";
+  const wrap = document.createElement("div"); wrap.className = "sheet";
+  const inst = kind === "installation";
+  wrap.innerHTML = `<div class="panel" role="dialog" aria-label="Ton avis">
+    <div class="sheet-head"><h2>${inst ? "Pourquoi tu n'as pas installé l'app ?" : "Ton avis sur l'application"}</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    ${inst ? `<div class="visg">${["Je ne sais pas comment faire", "Je n'ai pas assez d'espace", "Je n'ai pas Chrome", "Ça ne marche pas sur mon téléphone", "Autre raison"].map((r, i) => `<button type="button" class="mode" data-r="${esc(r)}" aria-pressed="${i === 0}"><b>${r}</b></button>`).join("")}</div>
+      <textarea id="a3" maxlength="600" placeholder="Explique en quelques mots (facultatif)"></textarea>` :
+    `<span class="label">Ta note</span><div class="stars">${[1, 2, 3, 4, 5].map(n => `<button type="button" class="star" data-n="${n}" aria-label="${n} sur 5">★</button>`).join("")}</div>
+    <textarea id="a1" maxlength="600" placeholder="Ce qui te plaît dans l'application"></textarea>
+    <textarea id="a2" maxlength="600" placeholder="Ce qui manque ou ce qui te gêne"></textarea>
+    <textarea id="a3" maxlength="600" placeholder="Tes idées pour la rendre plus agréable"></textarea>`}
+    <p class="hint">Seul ${ADMIN_NAME} lit les avis.</p>
+    <button class="btn btn-primary" id="send">Envoyer</button></div>`;
+  $("#layer").appendChild(wrap);
+  const close = () => { $("#layer").innerHTML = ""; render(); };
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); }); $("#x").onclick = close;
+  let note = 0, raison = inst ? "Je ne sais pas comment faire" : "";
+  wrap.querySelectorAll(".star").forEach(b => b.onclick = () => { note = +b.dataset.n; wrap.querySelectorAll(".star").forEach(o => o.classList.toggle("on", +o.dataset.n <= note)); });
+  wrap.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { raison = b.dataset.r; wrap.querySelectorAll("[data-r]").forEach(o => o.setAttribute("aria-pressed", o === b)); });
+  $("#send").onclick = () => {
+    const a = { uid: me.uid, name: me.name, kind, ts: Date.now(), week: weekKey(new Date()), note, raison,
+      plait: $("#a1") ? $("#a1").value.trim() : "", manque: $("#a2") ? $("#a2").value.trim() : "", idees: $("#a3").value.trim() };
+    if (!inst && !note && !a.plait && !a.manque && !a.idees) { toast("Donne au moins une note ou un mot."); return; }
+    setDoc(doc(collection(db, "avis")), a).then(() => toast("Merci pour ton avis !")).catch(() => toast("Envoi refusé. Vérifie ta connexion."));
+    close();
+  };
+}
+let avisList = null;
+function avisView() {
+  if (avisList === null) { avisList = []; getDocs(query(collection(db, "avis"), orderBy("ts", "desc"), limit(200))).then(sn => { avisList = sn.docs.map(d => d.data()); render(); }).catch(() => {}); }
+  const notes = avisList.filter(a => a.note), moy = notes.length ? (notes.reduce((x, a) => x + a.note, 0) / notes.length).toFixed(1) : "–";
+  return `${header()}<main class="page"><section class="card pad-in"><div class="sum-row"><div><b>${moy}</b><span>note moyenne / 5</span></div><div><b>${avisList.length}</b><span>avis reçus</span></div></div></section>
+  <div class="section-head"><h2>Avis des membres</h2></div>
+  ${avisList.map(a => `<article class="card post"><div class="post-head">${avatar(a.name)}<div class="meta"><strong>${esc(a.name)}</strong><small>${fmtDate(new Date(a.ts))} · ${a.kind === "installation" ? "Pas installé : " + esc(a.raison) : a.note ? "★".repeat(a.note) + "☆".repeat(5 - a.note) : "Sans note"}</small></div></div>
+    ${a.plait ? `<p class="post-text"><b>👍 </b>${esc(a.plait)}</p>` : ""}${a.manque ? `<p class="post-text"><b>⚠️ </b>${esc(a.manque)}</p>` : ""}${a.idees ? `<p class="post-text"><b>💡 </b>${esc(a.idees)}</p>` : ""}</article>`).join("") || `<div class="card empty">Aucun avis pour l'instant. L'assistante les demande chaque samedi.</div>`}</main>`;
+}
+const GUIDE = [
+  ["installer", "1. Installer l'application", ["g-install-1", "g-install-2", "g-install-3"]],
+  ["inscrire", "2. S'inscrire", ["g-inscription-1", "g-inscription-2"]],
+  ["objectifs", "3. Envoyer ses objectifs et son programme de la semaine", ["g-objectif-1", "g-objectif-2", "g-objectif-3", "g-objectif-4", "g-objectif-5"]],
+  ["matin", "4. Envoyer ses objectifs du jour", ["g-matin-1", "g-matin-2"]],
+  ["jour", "5. Faire son bilan du jour", ["g-jour-1", "g-jour-2"]],
+  ["semaine", "6. Faire son bilan de la semaine", ["g-semaine-1"]],
+  ["messages", "7. Lire ses messages et notifications", ["g-messages-1"]]
+];
+const guideOpen = new Set(["installer"]);
+function guideView() {
+  return `${header()}<main class="page"><section class="card pad-in"><h2 class="g-title">Guide en images</h2><p class="hint">Chaque étape, avec une flèche rouge sur l'endroit où appuyer. Touche un titre pour l'ouvrir.</p></section>
+  ${GUIDE.map(([k, t, imgs]) => `<details class="card guide" data-g="${k}" ${guideOpen.has(k) ? "open" : ""}><summary>${t}</summary>
+    <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.png" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption></figure>`).join("")}</div></details>`).join("")}
+  </main>`;
 }
 function openWarn(m) {
   $("#layer").innerHTML = "";
@@ -604,6 +825,7 @@ function bindSocial() {
     p.likes = liked ? (p.likes || []).filter(u => u !== me.uid) : [...(p.likes || []), me.uid];
     render();
     updateDoc(doc(db, "posts", id), { likes: liked ? arrayRemove(me.uid) : arrayUnion(me.uid) }).catch(() => toast("Action refusée. Vérifie ta connexion."));
+    if (!liked && p.uid !== me.uid) notify(p.uid, "like", `${firstName(me.name)} aime ta publication (${TYPES[p.type] || "message"})`, id);
   });
   document.querySelectorAll("[data-com]").forEach(b => b.onclick = () => {
     const id = b.dataset.com;
@@ -616,9 +838,29 @@ function bindSocial() {
     const id = f.dataset.cform, input = f.querySelector(".c-input"), text = input.value.trim();
     if (!text) return;
     input.value = "";
-    const ref = doc(collection(db, "comments"));
-    setDoc(ref, { postId: id, uid: me.uid, name: me.name, text, ts: Date.now() }).catch(() => toast("Commentaire refusé. Vérifie ta connexion."));
+    const ref = doc(collection(db, "comments")), to = replyTo[id];
+    const c = { postId: id, uid: me.uid, name: me.name, text, ts: Date.now(), likes: [] };
+    if (to) c.parentId = to.parentId || to.id; // une réponse à une réponse reste dans le même fil
+    delete replyTo[id];
+    setDoc(ref, c).catch(() => toast("Commentaire refusé. Vérifie ta connexion."));
+    const post = posts.find(x => x.id === id);
+    if (to && to.uid !== me.uid) notify(to.uid, "reply", `${firstName(me.name)} a répondu à ton commentaire : « ${text.slice(0, 80)} »`, id);
+    if (post && post.uid !== me.uid && (!to || to.uid !== post.uid)) notify(post.uid, "comment", `${firstName(me.name)} a commenté ta publication : « ${text.slice(0, 80)} »`, id);
+    render();
   });
+  document.querySelectorAll("[data-clike]").forEach(b => b.onclick = () => {
+    const c = comments.find(x => x.id === b.dataset.clike); if (!c) return;
+    const liked = (c.likes || []).includes(me.uid);
+    c.likes = liked ? c.likes.filter(u => u !== me.uid) : [...(c.likes || []), me.uid]; render();
+    updateDoc(doc(db, "comments", c.id), { likes: liked ? arrayRemove(me.uid) : arrayUnion(me.uid) }).catch(() => toast("Action refusée. Vérifie ta connexion."));
+    if (!liked && c.uid !== me.uid) notify(c.uid, "clike", `${firstName(me.name)} aime ton commentaire : « ${c.text.slice(0, 60)} »`, c.postId);
+  });
+  document.querySelectorAll("[data-reply]").forEach(b => b.onclick = () => {
+    const c = comments.find(x => x.id === b.dataset.reply); if (!c) return;
+    replyTo[c.postId] = c; render();
+    const i = document.getElementById("ci-" + c.postId); if (i) i.focus();
+  });
+  document.querySelectorAll("[data-rcancel]").forEach(b => b.onclick = () => { delete replyTo[b.dataset.rcancel]; render(); });
   document.querySelectorAll("[data-cdel]").forEach(b => b.onclick = () => {
     deleteDoc(doc(db, "comments", b.dataset.cdel)).then(() => toast("Commentaire supprimé")).catch(() => toast("Suppression refusée"));
   });
@@ -1057,3 +1299,5 @@ setInterval(render, 60000);
 const want = new URLSearchParams(location.search).get("ouvrir");
 if (want && TYPES[want]) { const t = setInterval(() => { if (me && myDoc && myDoc.status === "approved") { clearInterval(t); openSheet(want); } }, 300); }
 if (want === "demandes") view = "demandes";
+if (["messages", "notifs", "guide"].includes(want)) view = want;
+if (want === "avis" || want === "pourquoi") { const t = setInterval(() => { if (me && myDoc && myDoc.status === "approved") { clearInterval(t); openAvis(want === "pourquoi" ? "installation" : "semaine"); } }, 300); }

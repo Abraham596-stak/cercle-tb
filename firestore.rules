@@ -15,13 +15,17 @@ service cloud.firestore {
       allow create: if connecte() && request.auth.uid == uid && (
         admin() ||
         (request.resource.data.status == 'pending'
-          && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'joined', 'warnings', 'badges', 'status', 'notified'])
+          && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'joined', 'warnings', 'badges', 'status', 'notified', 'whatsapp'])
           && request.resource.data.email == request.auth.token.email
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 40
           && request.resource.data.badges.size() == 0 && request.resource.data.warnings.size() == 0)
       );
-      allow update, delete: if admin();
+      // Chacun peut ajouter son numéro WhatsApp et signaler qu'il a installé l'app
+      allow update: if admin() || (connecte() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['whatsapp', 'installed', 'installedAt'])
+        && (!('whatsapp' in request.resource.data) || (request.resource.data.whatsapp is string && request.resource.data.whatsapp.size() <= 20)));
+      allow delete: if admin();
     }
 
     match /posts/{id} {
@@ -60,11 +64,48 @@ service cloud.firestore {
     match /comments/{id} {
       allow read: if valide();
       allow create: if valide() && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['postId', 'uid', 'name', 'text', 'ts'])
+        && request.resource.data.keys().hasOnly(['postId', 'uid', 'name', 'text', 'ts', 'likes', 'parentId'])
+        && (!('likes' in request.resource.data) || request.resource.data.likes.size() == 0)
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
         && request.resource.data.ts is int && request.resource.data.ts <= request.time.toMillis() + 600000;
+      // J'aime sur les commentaires : chacun ne touche qu'à son propre j'aime
+      allow update: if valide()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes'])
+        && request.resource.data.likes.toSet().difference(resource.data.get('likes', []).toSet()).hasOnly([request.auth.uid])
+        && resource.data.get('likes', []).toSet().difference(request.resource.data.likes.toSet()).hasOnly([request.auth.uid]);
       allow delete: if admin() || (valide() && resource.data.uid == request.auth.uid);
+    }
+
+    // Notifications : chacun lit les siennes ; les membres peuvent en créer pour les autres (j'aime, commentaires, réponses)
+    match /notifs/{uid} {
+      allow read: if connecte() && request.auth.uid == uid;
+      allow create: if (connecte() && request.auth.uid == uid) || (valide() && request.resource.data.keys().hasOnly(['lastTs', 'lastText']));
+      allow update: if (connecte() && request.auth.uid == uid) || (valide() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastTs', 'lastText']));
+      match /items/{id} {
+        allow read, delete: if connecte() && request.auth.uid == uid;
+        allow create: if valide() && request.resource.data.from == request.auth.uid
+          && request.resource.data.text is string && request.resource.data.text.size() <= 300;
+      }
+    }
+
+    // Messagerie privée : chaque membre avec le fondateur (et l'assistante)
+    match /convos/{uid} {
+      allow read: if admin() || (connecte() && request.auth.uid == uid);
+      allow create, update: if admin() || (valide() && request.auth.uid == uid);
+      match /msgs/{id} {
+        allow read: if admin() || (connecte() && request.auth.uid == uid);
+        allow create: if (admin() && request.resource.data.from == 'admin')
+          || (valide() && request.auth.uid == uid && request.resource.data.from == uid
+              && request.resource.data.text is string && request.resource.data.text.size() <= 1000);
+        allow delete: if admin();
+      }
+    }
+
+    // Avis sur l'application : lus par le fondateur seul
+    match /avis/{id} {
+      allow create: if valide() && request.resource.data.uid == request.auth.uid;
+      allow read, delete: if admin();
     }
 
     // Vidéos découpées en morceaux (publiées par l'administrateur)

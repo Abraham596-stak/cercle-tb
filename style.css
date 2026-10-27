@@ -287,3 +287,57 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .visg { display: flex; flex-direction: column; gap: 8px; }
 .block.vis { margin-top: 4px; }
 .mine-priv { margin: 2px 0 8px; font-size: 13px; color: var(--muted); }
+
+.comment .cbody { flex: 1; min-width: 0; }
+.comment .bubble { position: relative; }
+.clikes { position: absolute; right: -6px; bottom: -10px; background: #fff; border-radius: 999px; padding: 1px 6px 1px 3px; font-size: 12px; display: inline-flex; align-items: center; gap: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.2); color: var(--muted); }
+.clikes svg { width: 14px; height: 14px; color: #F33E58; }
+.link-sm.on { color: var(--blue, #1877F2); font-weight: 700; }
+.comment.reply { margin-top: 8px; }
+.comment.reply .av.sm { width: 26px; height: 26px; font-size: 12px; }
+
+/* ---------- onglets façon Facebook ---------- */
+.tabs { max-width: 680px; margin: 0 auto; display: flex; background: var(--card); border-bottom: 1px solid var(--line); }
+.tab { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 0 6px; border: 0; background: none; color: var(--muted); border-bottom: 3px solid transparent; cursor: pointer; }
+.tab small { font-size: 11px; font-weight: 600; }
+.tab.on { color: var(--navy); border-bottom-color: var(--navy); }
+.tbadge { position: absolute; top: 3px; left: calc(50% + 4px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #E41E3F; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.topbar + .ticker { top: calc(env(safe-area-inset-top, 0px) + 56px + 56px); }
+.pad-in { padding: 14px 16px; }
+.convo-row, .notif { width: 100%; text-align: left; background: none; border: 0; cursor: pointer; font: inherit; color: inherit; }
+.convo-row.unread strong, .convo-row.unread small, .notif.unread .ntext { font-weight: 700; color: var(--ink); }
+.notif.unread { background: #E7F3FF; }
+.nicon { width: 40px; height: 40px; border-radius: 50%; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 20px; flex: none; }
+.ntext { font-weight: 500; }
+.dot-un { width: 12px; height: 12px; border-radius: 50%; background: var(--navy); flex: none; margin-left: auto; }
+/* ---------- messagerie ---------- */
+.chat { display: flex; flex-direction: column; min-height: calc(100vh - 120px); }
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.chat-head .meta { flex: 1; }
+.msgs { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 8px 4px 90px; }
+.msg { max-width: 82%; align-self: flex-start; display: flex; flex-direction: column; gap: 2px; }
+.msg.me { align-self: flex-end; align-items: flex-end; }
+.msg .mb { background: var(--card); border-radius: 18px; padding: 9px 13px; box-shadow: 0 1px 1px rgba(0,0,0,.06); word-wrap: break-word; overflow-wrap: anywhere; }
+.msg.me .mb { background: var(--navy); color: #fff; }
+.msg.me .mb a { color: #fff; }
+.msg.bot .mb { background: #FFF7E0; border: 1px solid #F5DFA0; }
+.msg .who { font-size: 12px; color: var(--muted); font-weight: 600; padding: 0 6px; }
+.msg small { font-size: 11px; color: var(--muted); padding: 0 6px; }
+.chat-form { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 calc(8px + env(safe-area-inset-bottom, 0px)); }
+.wa-ask { flex-direction: column; align-items: stretch; gap: 8px; }
+.wa-ask .row { display: flex; gap: 8px; } .wa-ask .field { flex: 1; margin: 0; }
+/* ---------- avis ---------- */
+.stars { display: flex; gap: 6px; }
+.star { font-size: 34px; line-height: 1; background: none; border: 0; color: #D0D4DA; cursor: pointer; padding: 0 2px; }
+.star.on { color: #F5B301; }
+/* ---------- guide ---------- */
+.g-title { margin: 0 0 4px; font-size: 20px; }
+.guide { padding: 0; overflow: hidden; }
+.guide summary { list-style: none; padding: 15px 16px; font-weight: 700; cursor: pointer; display: flex; justify-content: space-between; }
+.guide summary::-webkit-details-marker { display: none; }
+.guide summary::after { content: "+"; color: var(--navy); font-size: 22px; line-height: 1; }
+.guide[open] summary::after { content: "−"; }
+.g-imgs { display: flex; gap: 10px; overflow-x: auto; padding: 0 12px 14px; scroll-snap-type: x mandatory; }
+.g-imgs figure { margin: 0; flex: 0 0 78%; max-width: 300px; scroll-snap-align: start; }
+.g-imgs img { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; }
+.g-imgs figcaption { font-size: 12px; color: var(--muted); text-align: center; padding-top: 4px; }
