@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "23";
+const APP_VERSION = "24";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -334,6 +334,7 @@ function postHTML(p) {
     ${p.text ? `<p class="post-text">${esc(p.text)}</p>` : ""}
     ${tag ? `<div class="post-tags">${tag}</div>` : ""}
     ${p.type === "objectif" ? objHTML(p) : p.photo ? `<img class="post-img" src="${p.photo}" alt="Objectifs écrits sur papier" loading="lazy">` : ""}
+    ${p.guide ? guideCarousel(p.guide) : ""}
     ${mediaHTML(p)}
     ${p._pending ? `<div class="pending">En attente de réseau · envoi automatique</div>` : ""}
     ${p.id && !p._pending ? socialHTML(p) : ""}
@@ -396,6 +397,11 @@ function commentHTML(c, replies = [], isReply = false) {
       ${likes.length ? `<span class="clikes">${HEART}${likes.length}</span>` : ""}</div>
       <small>${fmtDate(new Date(c.ts))} à ${fmtTime(new Date(c.ts))}${c._pending ? " · envoi…" : ` · <button class="link-sm ${liked ? "on" : ""}" data-clike="${esc(c.id)}">J'aime</button> · <button class="link-sm" data-reply="${esc(c.id)}">Répondre</button>`}${(c.uid === me.uid || isAdmin()) && !c._pending ? ` · <button class="link-sm" data-cdel="${esc(c.id)}">Supprimer</button>` : ""}</small>
       ${replies.map(r => commentHTML(r, [], true)).join("")}</div></div>`;
+}
+function guideCarousel(k) {
+  const g = GUIDE.find(x => x[0] === k); if (!g) return "";
+  return `<div class="gcar"><div class="gcar-track" data-gcar>${g[2].map((im, i) => `<figure><img src="guide/${im}.jpg" alt="${esc(g[1])} · étape ${i + 1}" loading="lazy"></figure>`).join("")}</div>
+    <div class="gcar-dots">${g[2].map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}<span class="gcar-n">1/${g[2].length}</span></div></div>`;
 }
 function lockedHTML(p) {
   const d = new Date(p.ts);
@@ -736,6 +742,14 @@ function bindTabs() {
   };
   if (isAdmin()) {
     document.querySelectorAll("[data-gshare]").forEach(b => b.onclick = () => { const g = GUIDE.find(x => x[0] === b.dataset.gshare); shareImgs(g[2], g[1].replace(/^\d+\.\s*/, "")); });
+    document.querySelectorAll("[data-gpost]").forEach(b => b.onclick = () => {
+      const g = GUIDE.find(x => x[0] === b.dataset.gpost), titre = g[1].replace(/^\d+\.\s*/, "");
+      openMenu([["ok", "Oui, publier dans le fil", `« ${titre} » · ${g[2].length} image${g[2].length > 1 ? "s" : ""} à faire défiler`], ["no", "Annuler", ""]], k => {
+        if (k !== "ok") return;
+        savePost({ uid: me.uid, name: me.name, type: "message", text: `📘 Rappel : ${titre.charAt(0).toLowerCase() + titre.slice(1)}. Fais défiler les images →`, guide: g[0], ts: Date.now(), week: weekKey(new Date()), day: dayKey(new Date()), likes: [] });
+        view = "fil"; render(); scrollTo(0, 0);
+      }, b.parentElement);
+    });
     document.querySelectorAll("[data-gone]").forEach(b => b.onclick = () => { const g = GUIDE.find(x => x[2].includes(b.dataset.gone)); shareImgs([b.dataset.gone], g ? g[1].replace(/^\d+\.\s*/, "") : "Guide"); });
   }
   document.querySelectorAll("[data-g]").forEach(d => d.ontoggle = () => d.open ? guideOpen.add(d.dataset.g) : guideOpen.delete(d.dataset.g));
@@ -806,7 +820,7 @@ const guideOpen = new Set(["installer"]);
 function guideView() {
   return `${header()}<main class="page"><section class="card pad-in"><h2 class="g-title">Guide en images</h2><p class="hint">Chaque étape, avec une flèche rouge sur l'endroit où appuyer. Touche un titre pour l'ouvrir.</p></section>
   ${GUIDE.map(([k, t, imgs]) => `<details class="card guide" data-g="${k}" ${guideOpen.has(k) ? "open" : ""}><summary>${t}</summary>
-    ${isAdmin() ? `<div class="g-admin"><button class="btn btn-primary btn-sm" data-gshare="${k}">Partager les ${imgs.length} image${imgs.length > 1 ? "s" : ""} (statut WhatsApp…)</button></div>` : ""}
+    ${isAdmin() ? `<div class="g-admin"><button class="btn btn-primary btn-sm" data-gpost="${k}">Publier dans le fil du cercle</button> <button class="btn btn-secondary btn-sm" data-gshare="${k}">Partager les ${imgs.length} image${imgs.length > 1 ? "s" : ""} (statut WhatsApp…)</button></div>` : ""}
     <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.jpg" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption>
       ${isAdmin() ? `<div class="g-acts"><a class="link-sm" href="guide/${im}.jpg" download="cercle-tb-${im}.jpg">⤓ Télécharger</a><button class="link-sm" data-gone="${im}">Partager</button></div>` : ""}</figure>`).join("")}</div></details>`).join("")}
   </main>`;
@@ -833,6 +847,11 @@ function openWarn(m) {
 
 /* ---------- j'aime, commentaires, vidéos ---------- */
 function bindSocial() {
+  document.querySelectorAll("[data-gcar]").forEach(t => t.onscroll = () => {
+    const n = t.children.length, i = Math.round(t.scrollLeft / (t.children[0].offsetWidth + 8));
+    const box = t.parentElement; box.querySelectorAll(".gcar-dots i").forEach((d, j) => d.classList.toggle("on", j === i));
+    box.querySelector(".gcar-n").textContent = `${Math.min(n, i + 1)}/${n}`;
+  });
   document.querySelectorAll("[data-like]").forEach(b => b.onclick = () => {
     const id = b.dataset.like, p = posts.find(x => x.id === id); if (!p) return;
     const liked = (p.likes || []).includes(me.uid);

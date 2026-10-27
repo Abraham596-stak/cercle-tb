@@ -346,3 +346,14 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .g-acts { display: flex; justify-content: center; gap: 14px; padding-top: 4px; font-size: 13px; }
 .g-acts a { color: var(--navy); font-weight: 600; text-decoration: none; }
 .g-acts .link-sm { color: var(--navy); font-weight: 600; }
+
+.g-admin { display: flex; flex-wrap: wrap; gap: 8px; }
+.gcar { margin: 8px 0 4px; }
+.gcar-track { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 0 16px; scrollbar-width: none; }
+.gcar-track::-webkit-scrollbar { display: none; }
+.gcar-track figure { margin: 0; flex: 0 0 84%; max-width: 360px; scroll-snap-align: center; }
+.gcar-track img { width: 100%; display: block; border-radius: 12px; border: 1px solid var(--line); }
+.gcar-dots { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 8px 0 2px; }
+.gcar-dots i { width: 7px; height: 7px; border-radius: 50%; background: #CED0D4; }
+.gcar-dots i.on { background: var(--navy); }
+.gcar-n { font-size: 12px; color: var(--muted); margin-left: 6px; }
