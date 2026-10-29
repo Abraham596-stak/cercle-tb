@@ -24,9 +24,10 @@ jobs:
           cache: npm
           cache-dependency-path: rappels/package.json
       - run: npm install --no-audit --no-fund
-      - run: node discipline.mjs
-      - run: node envoyer.mjs auto
-      - name: Assistante
+      - name: Discipline, envois et assistante
         run: |
           set -o pipefail
-          node assistante.mjs 2>&1 | tee ../assistante.log || { echo "::error::$(grep -v '^\s*$' ../assistante.log | tail -6 | tr '\n' ' ' | cut -c1-900)"; exit 1; }
+          for f in "discipline.mjs" "envoyer.mjs auto" "assistante.mjs"; do
+            echo "=== $f"
+            node $f 2>&1 | tee ../etape.log || { echo "::error::$f : $(grep -v '^\s*$' ../etape.log | grep -iv 'deprecat\|warning' | tail -6 | tr '\n' ' ' | cut -c1-900)"; exit 1; }
+          done
