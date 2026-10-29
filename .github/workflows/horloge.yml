@@ -26,4 +26,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       - run: node discipline.mjs
       - run: node envoyer.mjs auto
-      - run: node assistante.mjs
+      - name: Assistante
+        run: |
+          set -o pipefail
+          node assistante.mjs 2>&1 | tee ../assistante.log || { echo "::error::$(grep -v '^\s*$' ../assistante.log | tail -6 | tr '\n' ' ' | cut -c1-900)"; exit 1; }
