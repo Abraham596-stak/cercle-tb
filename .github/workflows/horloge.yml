@@ -29,5 +29,5 @@ jobs:
           set -o pipefail
           for f in "discipline.mjs" "envoyer.mjs auto" "assistante.mjs"; do
             echo "=== $f"
-            node $f 2>&1 | tee ../etape.log || { echo "::error::$f : $(grep -v '^\s*$' ../etape.log | grep -iv 'deprecat\|warning' | tail -6 | tr '\n' ' ' | cut -c1-900)"; exit 1; }
+            node $f 2>&1 | tee ../etape.log || { echo "::error::$f : $(grep -v '^\s*$' ../etape.log | grep -i 'error\|code:\|details\|quota\|exhausted\|permission' | head -6 | tr '\n' ' ' | cut -c1-900)"; exit 1; }
           done
