@@ -33,11 +33,14 @@ const debutLocal = k => Date.parse(k + "T00:00:00Z") - 3600e3; // minuit local e
 const members = (await db.collection("members").get()).docs.map(d => ({ id: d.id, ...d.data() }));
 const membres = members.filter(m => m.status === "approved" && m.role !== "admin" && m.email !== ADMIN_EMAIL);
 const adminUid = (members.find(m => m.role === "admin" || m.email === ADMIN_EMAIL) || {}).uid;
-const posts = (await db.collection("posts").where("ts", ">=", NOW - 10 * 864e5).get()).docs.map(d => d.data());
-const tokDocs = (await db.collection("tokens").get()).docs;
-const tokensDe = uid => tokDocs.filter(d => d.data().uid === uid).map(d => d.id);
+// Économie du quota Firestore (50 000 lectures/jour) : relances, guides et avis ne sont calculés
+// qu'au début de chaque heure (ils partent au plus une fois par heure), plus 0h30 et 21h30 (nouvelles échéances).
+const PLEIN = process.env.FAKE_NOW || minute < 15 || (minute >= 30 && minute < 45 && (heure === 0 || heure === 21));
+const posts = PLEIN ? (await db.collection("posts").where("ts", ">=", NOW - 10 * 864e5).get()).docs.map(d => d.data()) : [];
+let tokDocs = null; // lus seulement si une notification doit partir
+const tokensDe = async uid => { if (!tokDocs) tokDocs = (await db.collection("tokens").get()).docs; return tokDocs.filter(d => d.data().uid === uid).map(d => d.id); };
 const assistRef = uid => db.collection("assist").doc(uid);
-const assist = Object.fromEntries((await db.collection("assist").get()).docs.map(d => [d.id, d.data()]));
+const assist = PLEIN ? Object.fromEntries((await db.collection("assist").get()).docs.map(d => [d.id, d.data()])) : {};
 
 // ---------- envois ----------
 let mailer = null, mails = 0, pushes = 0, msgs = 0;
@@ -45,7 +48,7 @@ if (process.env.GMAIL_APP_PASSWORD) mailer = nodemailer.createTransport({ servic
 const prenom = m => String(m.name || "").split(" ")[0] || "toi";
 
 async function push(uid, title, body, url = "./", tag = "assistante") {
-  const toks = tokensDe(uid); if (!toks.length || DRY) return;
+  if (DRY) return; const toks = await tokensDe(uid); if (!toks.length) return;
   const r = await admin.messaging().sendEach(toks.map(token => ({ token, data: { title, body: body.slice(0, 230), url, tag }, webpush: { headers: { Urgency: "high", TTL: "21600" } } })));
   pushes += r.successCount;
   await Promise.all(r.responses.map((x, i) => { const c = x.error?.code || ""; if (c.includes("not-registered") || c.includes("invalid-registration")) return db.collection("tokens").doc(toks[i]).delete(); }));
@@ -108,7 +111,7 @@ if (jSem === 0 && heure >= 9 && heure < 20)
     texte: (m, n) => n === 0 ? `${prenom(m)}, c'est dimanche : as-tu atteint ton objectif de la semaine ? Fais ton bilan : ${APP}/?ouvrir=semaine`
       : `Rappel n°${n + 1} : ton bilan de la semaine n'est pas encore fait, ${prenom(m)}. 2 minutes suffisent : ${APP}/?ouvrir=semaine` });
 
-for (const m of membres) {
+for (const m of PLEIN ? membres : []) {
   if ((m.approvedAt || 0) > NOW - 6 * 3600e3) continue; // laisse quelques heures aux nouveaux
   const st = assist[m.uid] || {};
   const dus = items.filter(it => !aFait(m, it) && (st[it.k] || {}).last !== hourKey);
@@ -135,7 +138,7 @@ const TUTOS = [
   ["semaine", "Comment faire ton bilan de la semaine", ["g-semaine-1"]],
   ["messages", "Où lire tes messages et tes notifications", ["g-messages-1"]]
 ];
-if (heure === 10) {
+if (PLEIN && heure === 10) {
   for (const m of members.filter(x => x.role !== "admin" && x.email !== ADMIN_EMAIL && (x.status === "approved" || x.status === "pending"))) {
     const st = assist[m.uid] || {};
     if (!m.installed) {
@@ -168,7 +171,7 @@ if (heure === 10) {
 }
 
 // ---------- 4. avis chaque samedi à midi ----------
-if (jSem === 6 && heure === 12) {
+if (PLEIN && jSem === 6 && heure === 12) {
   for (const m of membres) {
     const st = assist[m.uid] || {};
     if (st.avisDay === jour) continue;
@@ -196,14 +199,15 @@ try {
 } catch (e) { console.log("Nouveautés :", e.message); }
 
 // ---------- 5b. notifications des messages privés et des j'aime / commentaires ----------
-for (const d of (await db.collection("convos").get()).docs) {
+const RECENT = NOW - 3 * 3600e3; // seuls les fils modifiés depuis 3 h peuvent avoir une notification en attente
+for (const d of (await db.collection("convos").where("lastTs", ">", RECENT).get()).docs) {
   const c = d.data();
   if (!c.lastTs || c.lastTs <= (c.pushedTs || 0)) continue;
   if (c.lastFrom === "admin") await push(c.uid, `Message de ${ADMIN_NAME}`, c.last || "", "./?ouvrir=messages", "msg");
   else if (c.lastFrom === c.uid && adminUid) await push(adminUid, `Message de ${c.name || "un membre"}`, c.last || "", "./?ouvrir=messages", "msg-" + c.uid);
   if (!DRY) await d.ref.set({ pushedTs: c.lastTs }, { merge: true });
 }
-for (const d of (await db.collection("notifs").get()).docs) {
+for (const d of (await db.collection("notifs").where("lastTs", ">", RECENT).get()).docs) {
   const n = d.data();
   if (!n.lastTs || n.lastTs <= (n.pushedTs || 0)) continue;
   if (n.lastTs > (n.seen || 0)) await push(d.id, "Cercle TB", n.lastText || "Tu as une nouvelle notification", "./?ouvrir=notifs", "notif");

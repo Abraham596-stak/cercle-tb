@@ -22,9 +22,12 @@ for (const m of members.filter(m => !m.status)) {
   console.log("Ancien membre validé :", m.name);
 }
 
+// Économie du quota Firestore (50 000 lectures/jour) : ces vérifications ne relisent que
+// les publications des 9 derniers jours (les anciennes sont déjà migrées).
+const recents = (await db.collection("posts").where("ts", ">=", now - 9 * 864e5).get()).docs;
+
 // 1 bis. Confidentialité : le texte des objectifs et programmes déjà publiés devient privé (visible par l'auteur seul)
-const anciens = await db.collection("posts").where("type", "==", "objectif").get();
-for (const d of anciens.docs) {
+for (const d of recents.filter(d => d.data().type === "objectif")) {
   const p = d.data();
   if (p.objText === undefined && p.prog === undefined) continue;
   await db.collection("prives").doc(p.uid).collection("semaines").doc(p.week).set({ objText: p.objText || "", prog: p.prog || [], ts: p.ts }, { merge: true });
@@ -34,7 +37,7 @@ for (const d of anciens.docs) {
 
 // 1 ter. Confidentialité : le détail des bilans et objectifs du jour déjà publiés devient privé (visible par l'auteur seul)
 const CHAMPS = ["items", "tasks", "doneIdx", "itemsTotal", "doneItems", "zero", "matinOk", "atteint", "text"];
-const aCacher = (await db.collection("posts").where("type", "in", ["matin", "jour", "semaine", "objectif"]).get()).docs.filter(d => d.data().prive === undefined || (d.data().prive === true && CHAMPS.some(k => d.data()[k] !== undefined)));
+const aCacher = recents.filter(d => ["matin", "jour", "semaine", "objectif"].includes(d.data().type)).filter(d => d.data().prive === undefined || (d.data().prive === true && CHAMPS.some(k => d.data()[k] !== undefined)));
 for (const d of aCacher) {
   const p = d.data(), secret = {}, efface = { prive: true };
   CHAMPS.forEach(k => { if (p[k] !== undefined) { secret[k] = p[k]; efface[k] = admin.firestore.FieldValue.delete(); } });
@@ -162,7 +165,11 @@ if (aAccueillir.length && process.env.GMAIL_APP_PASSWORD) {
 } else if (aAccueillir.length) console.log(aAccueillir.length, "bienvenue(s) en attente du mot de passe Gmail");
 
 // 3. Blocage automatique après 14 jours sans bilan du jour
-const actifs = members.filter(m => m.status === "approved" && m.role !== "admin");
+// (une seule fois par jour, pour économiser le quota)
+const jourBenin = new Date(now + 3600e3).toISOString().slice(0, 10);
+const metaD = db.collection("meta").doc("discipline");
+const dejaFait = ((await metaD.get()).data() || {}).blocage === jourBenin;
+const actifs = dejaFait ? [] : members.filter(m => m.status === "approved" && m.role !== "admin");
 for (const m of actifs) {
   const last = await db.collection("posts").where("uid", "==", m.uid).where("type", "==", "jour").orderBy("ts", "desc").limit(1).get()
     .catch(async () => {
@@ -178,4 +185,5 @@ for (const m of actifs) {
     console.log("Bloqué pour inactivité :", m.name);
   }
 }
+if (!dejaFait) await metaD.set({ blocage: jourBenin }, { merge: true });
 console.log("Terminé");
