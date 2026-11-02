@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "24";
+const APP_VERSION = "25";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -588,6 +588,7 @@ function membresView() {
     <div class="av admin big">${esc(ADMIN_NAME[0])}</div>
     <div class="meta"><strong>${ADMIN_NAME}</strong><small>Fondateur et responsable de l'école de discipline</small></div>
   </section>
+  <section class="card invite-card"><div><b>Invite quelqu'un dans le cercle</b><small>${APP_LINK.replace("https://", "")}</small></div><button class="btn btn-primary btn-sm" id="inv">Partager le lien</button></section>
   <div class="section-head"><h2>Membres · ${others.filter(m => m.status === "approved").length}</h2></div>
   <section class="card list">
   ${others.map(m => memberRow(m, admin)).join("") || `<div class="empty">Aucun membre pour l'instant.</div>`}
@@ -646,6 +647,7 @@ function render() {
     ["fil", "Fil du groupe", "Objectifs et bilans de tous"],
     ["membres", "Membres", admin ? "Mises en garde, badges, blocage" : "Qui est dans le cercle"],
     ...(admin ? [["demandes", `Demandes d'accès${pend ? ` (${pend})` : ""}`, "Valider les nouveaux membres"]] : []),
+    ["invite", "Inviter quelqu'un", "Partager le lien de l'application"],
     ["guide", "Guide en images", "Installer, s'inscrire, publier, faire ses bilans"],
     ["avis", admin ? "Avis des membres" : "Donner mon avis", admin ? "Ce que les membres pensent de l'app" : "Ce qui te plaît, ce qui manque"],
     ["notif", "Activer les rappels", "23h30 et le dimanche"],
@@ -653,6 +655,7 @@ function render() {
     ["out", "Se déconnecter", esc(me.email)]
   ], k => {
     if (k === "fil" || k === "membres" || k === "demandes" || k === "guide") { view = k; render(); scrollTo(0, 0); }
+    if (k === "invite") openInvite();
     if (k === "avis") { if (admin) { view = "avis"; render(); scrollTo(0, 0); } else openAvis(); }
     if (k === "notif") enableNotifs();
     if (k === "install") install();
@@ -756,6 +759,7 @@ function bindTabs() {
   document.querySelectorAll("[data-chat]").forEach(b => b.onclick = () => openChat(b.dataset.chat));
   if ($("#chat-back")) $("#chat-back").onclick = () => { if (chatUnsub) chatUnsub(); chatUnsub = null; view = "messages"; render(); };
   if ($("#bcast")) $("#bcast").onclick = openBroadcast;
+  if ($("#inv")) $("#inv").onclick = openInvite;
   const box = $("#msgs"); if (box) box.lastElementChild?.scrollIntoView({ block: "end" });
   if ($("#chat-form")) $("#chat-form").onsubmit = e => {
     e.preventDefault(); const i = $("#chat-in"), t = i.value.trim(); if (!t) return; i.value = "";
@@ -824,6 +828,31 @@ function guideView() {
     <div class="g-imgs">${imgs.map((im, i) => `<figure><img src="guide/${im}.jpg" alt="${esc(t)} · étape ${i + 1}" loading="lazy"><figcaption>Étape ${i + 1}</figcaption>
       ${isAdmin() ? `<div class="g-acts"><a class="link-sm" href="guide/${im}.jpg" download="cercle-tb-${im}.jpg">⤓ Télécharger</a><button class="link-sm" data-gone="${im}">Partager</button></div>` : ""}</figure>`).join("")}</div></details>`).join("")}
   </main>`;
+}
+const APP_LINK = "https://cercle-tb.web.app";
+const inviteText = () => `Rejoins Le Cercle TB, l'école de discipline de ${ADMIN_NAME} : un objectif par semaine, un bilan chaque soir, zéro scroll. Ouvre ce lien dans Chrome pour t'inscrire et installer l'application : ${APP_LINK}`;
+function openInvite() {
+  $("#layer").innerHTML = "";
+  const wrap = document.createElement("div"); wrap.className = "sheet";
+  wrap.innerHTML = `<div class="panel" role="dialog" aria-label="Inviter quelqu'un">
+    <div class="sheet-head"><h2>Inviter quelqu'un</h2><button class="icon-btn dark" id="x" aria-label="Fermer">×</button></div>
+    <div class="link-box"><span>${APP_LINK}</span></div>
+    <div class="visg">
+      <button type="button" class="mode" data-inv="share"><b>Partager…</b><small>WhatsApp, Messenger, SMS, statut…</small></button>
+      <button type="button" class="mode" data-inv="wa"><b>Envoyer sur WhatsApp</b><small>Le message d'invitation est déjà écrit</small></button>
+      <button type="button" class="mode" data-inv="copy"><b>Copier le lien</b><small>Pour le coller où tu veux</small></button>
+    </div>
+    <p class="hint">La personne s'inscrit, puis ${ADMIN_NAME} valide sa demande.</p></div>`;
+  $("#layer").appendChild(wrap);
+  const close = () => { $("#layer").innerHTML = ""; render(); };
+  wrap.addEventListener("click", e => { if (e.target === wrap) close(); }); $("#x").onclick = close;
+  const copy = async () => { try { await navigator.clipboard.writeText(inviteText()); toast("Lien et message copiés"); } catch (e) { prompt("Copie ce lien :", APP_LINK); } };
+  wrap.querySelectorAll("[data-inv]").forEach(b => b.onclick = async () => {
+    const k = b.dataset.inv;
+    if (k === "share") { if (navigator.share) { try { await navigator.share({ title: "Le Cercle TB", text: inviteText() }); } catch (e) {} } else copy(); }
+    if (k === "wa") window.open("https://wa.me/?text=" + encodeURIComponent(inviteText()), "_blank");
+    if (k === "copy") copy();
+  });
 }
 function openWarn(m) {
   $("#layer").innerHTML = "";

@@ -357,3 +357,8 @@ textarea { min-height: 96px; resize: vertical; background: var(--bg); border-col
 .gcar-dots i { width: 7px; height: 7px; border-radius: 50%; background: #CED0D4; }
 .gcar-dots i.on { background: var(--navy); }
 .gcar-n { font-size: 12px; color: var(--muted); margin-left: 6px; }
+
+.invite-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
+.invite-card div { display: flex; flex-direction: column; min-width: 0; }
+.invite-card small { color: var(--muted); }
+.link-box { background: var(--bg); border-radius: 10px; padding: 12px 14px; font-weight: 700; color: var(--navy); text-align: center; word-break: break-all; }
