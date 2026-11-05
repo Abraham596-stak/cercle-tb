@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "firebase-admin": "12.1.0",
+    "imapflow": "1.0.164",
     "nodemailer": "6.9.14"
   }
 }

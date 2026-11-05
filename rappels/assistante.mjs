@@ -6,6 +6,7 @@
 //  5. Envoie les notifications des nouveaux messages privés, des j'aime / commentaires et des nouveautés de l'application
 import admin from "firebase-admin";
 import nodemailer from "nodemailer";
+import { ImapFlow } from "imapflow";
 import fs from "fs";
 
 const ADMIN_EMAIL = "denahoueamerveil@gmail.com";
@@ -60,10 +61,63 @@ async function inbox(m, text) {
   b.set(db.collection("convos").doc(m.uid), { uid: m.uid, name: m.name, last: text.slice(0, 140), lastTs: ts, lastFrom: "assistante", pushedTs: ts }, { merge: true });
   await b.commit();
 }
+// ---------- e-mails non distribués (boîte pleine, adresse fausse) ----------
+// L'assistante lit les avis « Message non distribué » dans la boîte Gmail du fondateur,
+// met en pause les e-mails vers ce membre (3 jours si boîte pleine, définitivement si adresse fausse),
+// prévient le membre dans l'app et range l'avis dans la corbeille.
+async function traiterRetours() {
+  if (!process.env.GMAIL_APP_PASSWORD || DRY || !PLEIN) return;
+  const c = new ImapFlow({ host: "imap.gmail.com", port: 993, secure: true, logger: false,
+    auth: { user: ADMIN_EMAIL, pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, "") } });
+  const parMail = Object.fromEntries(members.filter(m => m.email).map(m => [m.email.toLowerCase(), m]));
+  let vus = 0;
+  try {
+    await c.connect();
+    const boites = await c.list();
+    const corbeille = (boites.find(b => b.specialUse === "\\Trash") || {}).path;
+    const lock = await c.getMailboxLock("INBOX");
+    try {
+      const uids = await c.search({ from: "mailer-daemon", since: new Date(NOW - 4 * 864e5) }, { uid: true }) || [];
+      for (const uid of uids) {
+        const msg = await c.fetchOne(String(uid), { source: true }, { uid: true });
+        const src = msg && msg.source ? msg.source.toString("utf8") : "";
+        const hdr = (src.match(/^X-Failed-Recipients:\s*(.+)$/mi) || [])[1] || "";
+        const cibles = [...new Set([...hdr.split(/[,\s]+/), ...(src.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g) || [])].map(x => x.toLowerCase()))].filter(x => parMail[x]);
+        if (!cibles.length) continue; // pas un membre du cercle (ex. ABROMARKET) : on n'y touche pas
+        const definitif = /\b5\.\d\.\d+\b/.test(src) && !/\b4\.\d\.\d+\b/.test(src);
+        const plein = /4\.2\.2|out of storage|OverQuota|espace de stockage/i.test(src);
+        for (const e of cibles) {
+          const m = parMail[e]; if (m.role === "admin") continue;
+          const deja = m.emailOff || (m.emailPause || 0) > NOW;
+          const maj = definitif ? { emailOff: true, emailRaison: "adresse e-mail introuvable" } : { emailPause: NOW + 3 * 864e5, emailRaison: plein ? "boîte Gmail pleine" : "e-mail refusé temporairement" };
+          await db.collection("members").doc(m.uid).set(maj, { merge: true });
+          Object.assign(m, maj);
+          if (!deja) {
+            await inbox(m, definitif
+              ? `${prenom(m)}, les e-mails envoyés à ${m.email} reviennent : cette adresse n'existe pas ou n'accepte pas les messages. Je t'écrirai seulement ici, dans l'application. Pour changer d'adresse, écris à ${ADMIN_NAME}.`
+              : `${prenom(m)}, ta boîte Gmail (${m.email}) est pleine : mes e-mails ne peuvent plus t'arriver${plein ? "" : " pour le moment"}. Libère de la place (supprime les gros e-mails, vide la corbeille, ou va sur one.google.com/storage). En attendant, je t'écris ici dans l'application.`);
+            if (adminUid) {
+              const t = `📭 Les e-mails à ${m.name} (${m.email}) ne passent pas : ${maj.emailRaison}. L'assistante ne lui écrit plus que dans l'app${definitif ? "" : " pendant 3 jours"}.`;
+              await db.collection("notifs").doc(adminUid).collection("items").add({ kind: "assistante", text: t, from: "systeme", fromName: "Assistante", postId: "", ts: Date.now() });
+              await db.collection("notifs").doc(adminUid).set({ lastTs: Date.now(), lastText: t }, { merge: true });
+            }
+            note(`E-mails en pause pour ${m.name} : ${maj.emailRaison}`);
+          }
+        }
+        if (corbeille) await c.messageMove(String(uid), corbeille, { uid: true }); else await c.messageFlagsAdd(String(uid), ["\\Seen"], { uid: true });
+        vus++;
+      }
+    } finally { lock.release(); }
+  } catch (e) { console.log(`${process.env.GITHUB_ACTIONS ? "::warning::" : ""}Lecture des retours d'e-mails impossible : ${e.message}`); }
+  finally { try { await c.logout(); } catch (_) {} }
+  if (vus) note(`${vus} avis « non distribué » traités et rangés`);
+}
+await traiterRetours();
+
 const btn = (url, label) => `<p style="margin:22px 0"><a href="${url}" style="background:#1D9BF0;color:#fff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:700;display:inline-block">${label}</a></p>`;
 const imgs = list => list.map((src, i) => `<p style="margin:16px 0 4px;font-weight:700;color:#0B1F3F">Étape ${i + 1}</p><img src="${APP}/guide/${src}.jpg" alt="Étape ${i + 1}" width="300" style="width:300px;max-width:100%;border:1px solid #E4E6EB;border-radius:12px;display:block">`).join("");
 async function mail(m, subject, html, text) {
-  if (!mailer || !m.email) return;
+  if (!mailer || !m.email || m.emailOff || (m.emailPause || 0) > NOW) return; // adresse en erreur : on écrit seulement dans l'app
   mails++; if (DRY) { note(`[mail] ${m.name} · ${subject}`); return; }
   const page = `<div style="font-family:Segoe UI,Roboto,Arial,sans-serif;max-width:560px;margin:auto;color:#1C1E21;font-size:16px;line-height:1.55">
     <div style="font-size:26px;font-weight:800;color:#1D9BF0;letter-spacing:-.5px">cercle tb</div>

@@ -40,7 +40,7 @@ if ("serviceWorker" in navigator) {
   }).catch(() => {});
 }
 // Filet de sécurité : compare la version en ligne avec celle affichée
-const APP_VERSION = "25";
+const APP_VERSION = "26";
 async function checkVersion() {
   if (!navigator.onLine) return;
   try {
@@ -568,6 +568,7 @@ function memberRow(m, admin) {
     m.status === "blocked" ? `<span class="tag ko">Bloqué</span>` : "",
     m.status === "approved" && inact >= 7 ? `<span class="tag ko">Inactif ${inact} j</span>` : "",
     fail ? `<span class="tag ko">2 semaines non tenues</span>` : "",
+    m.emailOff || (m.emailPause || 0) > Date.now() ? `<span class="tag ko">📭 E-mails en pause · ${esc(m.emailRaison || "")}</span>` : "",
     (m.warnings || []).length ? `<span class="tag">${m.warnings.length} mise${m.warnings.length > 1 ? "s" : ""} en garde</span>` : ""
   ].join("") : "";
   return `<div class="member">
@@ -710,6 +711,7 @@ function render() {
     const has = m.badges || [];
     openMenu([
       ["msg", "Message privé", "Dans sa messagerie de l'app"],
+      m.emailOff || (m.emailPause || 0) > Date.now() ? ["mailon", "Reprendre les e-mails", `En pause : ${esc(m.emailRaison || "décision du fondateur")}`] : ["mailoff", "Arrêter les e-mails", "L'assistante ne lui écrira plus que dans l'app"],
       ...(m.whatsapp ? [["wa", "Écrire sur WhatsApp", esc(m.whatsapp)]] : [["nowa", "WhatsApp", "Numéro pas encore renseigné"]]),
       ["warn", "Mettre en garde", "Message visible uniquement par ce membre"],
       ["badge", "Donner un badge", has.length ? `Actuel : ${esc(has.join(", "))}` : "Récompenser sa discipline"],
@@ -718,6 +720,8 @@ function render() {
       [blocked ? "unblock" : "block", blocked ? "Débloquer" : "Bloquer l'accès", blocked ? "Le membre revient dans le cercle" : "Le membre ne voit plus le cercle"]
     ], k => {
       if (k === "msg") openChat(m.uid);
+      if (k === "mailoff") setMember(m.uid, { emailOff: true, emailRaison: "décision du fondateur" }).then(() => toast("E-mails arrêtés pour ce membre"));
+      if (k === "mailon") setMember(m.uid, { emailOff: false, emailPause: 0, emailRaison: "" }).then(() => toast("E-mails repris"));
       if (k === "wa") window.open(waLink(m.whatsapp, `Bonjour ${firstName(m.name)}, c'est ${ADMIN_NAME} du Cercle TB. `), "_blank");
       if (k === "nowa") toast("Ce membre n'a pas encore ajouté son numéro.");
       if (k === "warn") openWarn(m);
