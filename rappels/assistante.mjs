@@ -63,7 +63,7 @@ async function inbox(m, text) {
 }
 // ---------- e-mails non distribués (boîte pleine, adresse fausse) ----------
 // L'assistante lit les avis « Message non distribué » dans la boîte Gmail du fondateur,
-// met en pause les e-mails vers ce membre (3 jours si boîte pleine, définitivement si adresse fausse),
+// met en pause les e-mails vers ce membre (7 jours si boîte pleine, définitivement si adresse fausse),
 // prévient le membre dans l'app et range l'avis dans la corbeille.
 async function traiterRetours() {
   if (!process.env.GMAIL_APP_PASSWORD || DRY || !PLEIN) return;
@@ -89,7 +89,7 @@ async function traiterRetours() {
         for (const e of cibles) {
           const m = parMail[e]; if (m.role === "admin") continue;
           const deja = m.emailOff || (m.emailPause || 0) > NOW;
-          const maj = definitif ? { emailOff: true, emailRaison: "adresse e-mail introuvable" } : { emailPause: NOW + 3 * 864e5, emailRaison: plein ? "boîte Gmail pleine" : "e-mail refusé temporairement" };
+          const maj = definitif ? { emailOff: true, emailRaison: "adresse e-mail introuvable" } : { emailPause: NOW + 7 * 864e5, emailRaison: plein ? "boîte Gmail pleine" : "e-mail refusé temporairement" };
           await db.collection("members").doc(m.uid).set(maj, { merge: true });
           Object.assign(m, maj);
           if (!deja) {
@@ -97,7 +97,7 @@ async function traiterRetours() {
               ? `${prenom(m)}, les e-mails envoyés à ${m.email} reviennent : cette adresse n'existe pas ou n'accepte pas les messages. Je t'écrirai seulement ici, dans l'application. Pour changer d'adresse, écris à ${ADMIN_NAME}.`
               : `${prenom(m)}, ta boîte Gmail (${m.email}) est pleine : mes e-mails ne peuvent plus t'arriver${plein ? "" : " pour le moment"}. Libère de la place (supprime les gros e-mails, vide la corbeille, ou va sur one.google.com/storage). En attendant, je t'écris ici dans l'application.`);
             if (adminUid) {
-              const t = `📭 Les e-mails à ${m.name} (${m.email}) ne passent pas : ${maj.emailRaison}. L'assistante ne lui écrit plus que dans l'app${definitif ? "" : " pendant 3 jours"}.`;
+              const t = `📭 Les e-mails à ${m.name} (${m.email}) ne passent pas : ${maj.emailRaison}. L'assistante ne lui écrit plus que dans l'app${definitif ? "" : " pendant 7 jours"}.`;
               await db.collection("notifs").doc(adminUid).collection("items").add({ kind: "assistante", text: t, from: "systeme", fromName: "Assistante", postId: "", ts: Date.now() });
               await db.collection("notifs").doc(adminUid).set({ lastTs: Date.now(), lastText: t }, { merge: true });
             }
